@@ -250,7 +250,34 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     loadData();
   };
 
+  const [showSOSelectModal, setShowSOSelectModal] = useState(false);
+  const [soSelectSearch, setSoSelectSearch] = useState('');
   const [editingSOs, setEditingSOs] = useState<SalesOrder[]>([]);
+
+  const openNew = () => {
+    setEditChallan(null);
+    setForm(emptyForm);
+    setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0 }]);
+    setSoSelectSearch('');
+    setShowSOSelectModal(true);
+  };
+
+  const handleSOSelectAndOpenForm = async (soId: string) => {
+    setShowSOSelectModal(false);
+    setEditChallan(null);
+    setForm(emptyForm);
+    setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0 }]);
+    await handleSOChange(soId);
+    setShowModal(true);
+  };
+
+  const handleNewWithoutSO = () => {
+    setShowSOSelectModal(false);
+    setEditChallan(null);
+    setForm(emptyForm);
+    setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0 }]);
+    setShowModal(true);
+  };
 
   const openEdit = async (dc: DCType) => {
     const { data: existingItems } = await supabase.from('delivery_challan_items').select('*').eq('delivery_challan_id', dc.id);
@@ -298,13 +325,6 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     setViewChallan(dc);
     setViewItems((itemsData || []) as ChallanItem[]);
     setShowViewModal(true);
-  };
-
-  const openNew = () => {
-    setEditChallan(null);
-    setForm(emptyForm);
-    setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0 }]);
-    setShowModal(true);
   };
 
   const handleDelete = async () => {
@@ -645,6 +665,72 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
         confirmLabel="Cancel Challan"
         isDanger
       />
+
+      {showSOSelectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowSOSelectModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+              <div>
+                <h2 className="text-base font-bold text-neutral-900">New Delivery Challan</h2>
+                <p className="text-xs text-neutral-500">Link to a Sales Order or create without one</p>
+              </div>
+              <button onClick={() => setShowSOSelectModal(false)} className="p-1.5 rounded-lg hover:bg-neutral-100 transition-colors">
+                <X className="w-4 h-4 text-neutral-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                <input
+                  value={soSelectSearch}
+                  onChange={e => setSoSelectSearch(e.target.value)}
+                  placeholder="Search SO number or customer..."
+                  className="input pl-8 w-full text-xs"
+                  autoFocus
+                />
+              </div>
+
+              {salesOrders.filter(so =>
+                !soSelectSearch ||
+                so.so_number.toLowerCase().includes(soSelectSearch.toLowerCase()) ||
+                so.customer_name.toLowerCase().includes(soSelectSearch.toLowerCase())
+              ).length === 0 && soSelectSearch ? (
+                <div className="text-center py-6 text-neutral-400 text-sm">No matching Sales Orders found.</div>
+              ) : (
+                <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                  {salesOrders
+                    .filter(so =>
+                      !soSelectSearch ||
+                      so.so_number.toLowerCase().includes(soSelectSearch.toLowerCase()) ||
+                      so.customer_name.toLowerCase().includes(soSelectSearch.toLowerCase())
+                    )
+                    .map(so => (
+                      <div key={so.id} onClick={() => handleSOSelectAndOpenForm(so.id)}
+                        className="flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-primary-50 transition-colors">
+                        <div>
+                          <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
+                          <p className="text-xs text-neutral-500">{so.customer_name}</p>
+                        </div>
+                        <StatusBadge status={so.status} />
+                      </div>
+                    ))}
+                  {salesOrders.length === 0 && (
+                    <div className="text-center py-6 text-neutral-400 text-sm">No confirmed Sales Orders available.</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pb-5">
+              <button onClick={handleNewWithoutSO} className="w-full btn-secondary text-sm">
+                <Plus className="w-4 h-4" /> Create without Sales Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPrint && selectedChallan && (
         <div className="fixed inset-0 z-50 bg-neutral-100 overflow-auto">

@@ -567,7 +567,7 @@ export interface SalesReturnItem {
 export type ActivePage =
   | 'dashboard'
   | 'inventory'
-  | 'godowns'
+  | 'godown-stock'
   | 'purchase'
   | 'sales'
   | 'sales-orders'
@@ -584,4 +584,4 @@ export type ActivePage =
   | 'reports'
   | 'courier'
   | 'automation'
-  | 'company-settings';
+  | 'settings';

@@ -444,9 +444,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 {[
                   { label: 'New Invoice', page: 'invoices' as ActivePage, icon: Receipt, color: 'text-primary-600 bg-primary-50', show: canAccessSales },
                   { label: 'Sales Order', page: 'sales-orders' as ActivePage, icon: ShoppingCart, color: 'text-blue-600 bg-blue-50', show: canAccessSales },
-                  { label: 'Dispatch', page: 'dispatch' as ActivePage, icon: Send, color: 'text-orange-600 bg-orange-50', show: canAccessSales },
+                  { label: 'Delivery Challan', page: 'challans' as ActivePage, icon: Send, color: 'text-orange-600 bg-orange-50', show: canAccessSales },
                   { label: 'Add Client', page: 'crm' as ActivePage, icon: Users, color: 'text-green-600 bg-green-50', show: true },
-                  { label: 'Godowns', page: 'godowns' as ActivePage, icon: Package, color: 'text-teal-600 bg-teal-50', show: canAccessInventory },
+                  { label: 'Stock', page: 'godown-stock' as ActivePage, icon: Package, color: 'text-teal-600 bg-teal-50', show: canAccessInventory },
                   { label: 'Reports', page: 'reports' as ActivePage, icon: BarChart2, color: 'text-neutral-600 bg-neutral-100', show: true },
                 ].filter(a => a.show).map(action => (
                   <button key={action.label} onClick={() => onNavigate(action.page)}

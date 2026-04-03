@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, FileText, BarChart2,
   Truck, BookOpen, Receipt, Zap, LogOut, Moon, RotateCcw,
-  CalendarDays, CircleUser as UserCircle2, Settings, Warehouse, Send,
-  CreditCard
+  CalendarDays, CircleUser as UserCircle2, Settings,
+  CreditCard, PackageCheck
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -17,16 +17,14 @@ interface SidebarProps {
 export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const { profile, isAdmin, canAccessFinance, canAccessSales, canAccessInventory, signOut } = useAuth();
   const [unpaidInvoices, setUnpaidInvoices] = useState(0);
-  const [pendingDispatches, setPendingDispatches] = useState(0);
 
   useEffect(() => {
     const loadBadges = async () => {
-      const [invoiceRes, dispatchRes] = await Promise.all([
-        supabase.from('invoices').select('id', { count: 'exact', head: true }).in('status', ['sent', 'partial', 'overdue']),
-        supabase.from('dispatch_entries').select('id', { count: 'exact', head: true }).in('status', ['pending', 'dispatched', 'in_transit']),
-      ]);
-      setUnpaidInvoices(invoiceRes.count || 0);
-      setPendingDispatches(dispatchRes.count || 0);
+      const { count } = await supabase
+        .from('invoices')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['sent', 'partial', 'overdue']);
+      setUnpaidInvoices(count || 0);
     };
     loadBadges();
   }, []);
@@ -93,12 +91,13 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
 
         {canAccessSales && (
           <>
-            <SectionLabel label="Sales Flow" />
+            <SectionLabel label="Sales" />
             <div className="space-y-0.5">
               <NavItem id="sales-orders" label="Sales Orders" icon={FileText} />
-              <NavItem id="invoices" label="Invoices" icon={Receipt} />
               <NavItem id="challans" label="Delivery Challans" icon={Truck} />
+              <NavItem id="invoices" label="Invoices" icon={Receipt} badge={unpaidInvoices} />
               <NavItem id="sales-returns" label="Returns" icon={RotateCcw} />
+              <NavItem id="courier" label="Courier Log" icon={PackageCheck} />
             </div>
           </>
         )}
@@ -107,9 +106,9 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
           <>
             <SectionLabel label="Inventory" />
             <div className="space-y-0.5">
+              {isAdmin && <NavItem id="purchase" label="Purchases" icon={ShoppingCart} />}
               <NavItem id="inventory" label="Products" icon={Package} />
-              <NavItem id="godowns" label="Godowns" icon={Warehouse} />
-              {isAdmin && <NavItem id="purchase" label="Purchase" icon={ShoppingCart} />}
+              <NavItem id="godown-stock" label="Stock" icon={BarChart2} />
             </div>
           </>
         )}
@@ -125,12 +124,6 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
           </>
         )}
 
-        <SectionLabel label="Logistics" />
-        <div className="space-y-0.5">
-          <NavItem id="dispatch" label="Dispatch" icon={Send} badge={pendingDispatches} />
-          <NavItem id="courier" label="Courier Log" icon={Truck} />
-        </div>
-
         <SectionLabel label="Analytics" />
         <div className="space-y-0.5">
           <NavItem id="reports" label="Reports" icon={BarChart2} />
@@ -141,7 +134,7 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
           <>
             <SectionLabel label="Admin" />
             <div className="space-y-0.5">
-              <NavItem id="company-settings" label="Company" icon={Settings} />
+              <NavItem id="settings" label="Settings" icon={Settings} />
             </div>
           </>
         )}

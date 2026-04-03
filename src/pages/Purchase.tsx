@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, FileText, Building2, ChevronDown, ChevronRight, X, Download } from 'lucide-react';
+import { Plus, Search, FileText, Building2, ChevronDown, ChevronRight, X, Download, Warehouse } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatCurrency, formatDate, generateId, exportToCSV } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,7 +9,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ActionMenu, { actionEdit, actionDelete } from '../components/ui/ActionMenu';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { useDateRange } from '../contexts/DateRangeContext';
-import type { PurchaseEntry, Product, Supplier } from '../types';
+import type { PurchaseEntry, Product, Supplier, Godown } from '../types';
 
 interface LineItem {
   product_id: string;
@@ -29,6 +29,7 @@ export default function Purchase() {
   const [entries, setEntries] = useState<PurchaseEntry[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [godowns, setGodowns] = useState<Godown[]>([]);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
@@ -42,7 +43,7 @@ export default function Purchase() {
   const [form, setForm] = useState({
     supplier_id: '', supplier_name: '',
     entry_date: new Date().toISOString().split('T')[0],
-    invoice_number: '', notes: '',
+    invoice_number: '', notes: '', godown_id: '',
   });
   const [items, setItems] = useState<LineItem[]>([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '', total_price: 0 }]);
 
@@ -53,14 +54,16 @@ export default function Purchase() {
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
-    const [entriesRes, suppliersRes, productsRes] = await Promise.all([
+    const [entriesRes, suppliersRes, productsRes, godownsRes] = await Promise.all([
       supabase.from('purchase_entries').select('*').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
       supabase.from('products').select('id, name, unit, purchase_price, stock_quantity').eq('is_active', true),
+      supabase.from('godowns').select('*').eq('is_active', true).order('name'),
     ]);
     setEntries(entriesRes.data || []);
     setSuppliers(suppliersRes.data || []);
     setProducts(productsRes.data || []);
+    setGodowns(godownsRes.data || []);
   };
 
   const addItem = () => setItems(prev => [...prev, { product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '', total_price: 0 }]);
@@ -90,7 +93,7 @@ export default function Purchase() {
 
   const openNewEntry = () => {
     setEditingEntry(null);
-    setForm({ supplier_id: '', supplier_name: '', entry_date: new Date().toISOString().split('T')[0], invoice_number: '', notes: '' });
+    setForm({ supplier_id: '', supplier_name: '', entry_date: new Date().toISOString().split('T')[0], invoice_number: '', notes: '', godown_id: godowns[0]?.id || '' });
     setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '', total_price: 0 }]);
     setShowModal(true);
   };
@@ -103,6 +106,7 @@ export default function Purchase() {
       entry_date: entry.entry_date,
       invoice_number: entry.invoice_number || '',
       notes: entry.notes || '',
+      godown_id: '',
     });
     const { data } = await supabase.from('purchase_entry_items').select('*').eq('purchase_entry_id', entry.id);
     const loaded = (data || []).map((item: any) => ({
@@ -168,17 +172,36 @@ export default function Purchase() {
         await supabase.from('purchase_entry_items').insert(entryItemPayload);
 
         for (const item of items.filter(i => i.product_id)) {
+          const qty = parseFloat(item.quantity) || 0;
           await supabase.from('stock_movements').insert({
             product_id: item.product_id,
-            movement_type: 'in',
-            quantity: parseFloat(item.quantity) || 0,
+            movement_type: 'purchase',
+            quantity: qty,
             reference_type: 'purchase_entry',
             reference_id: entry.id,
+            godown_id: form.godown_id || null,
             notes: 'Purchase ' + entryNumber,
           });
+
+          if (form.godown_id) {
+            const { data: existing } = await supabase
+              .from('godown_stock')
+              .select('quantity')
+              .eq('product_id', item.product_id)
+              .eq('godown_id', form.godown_id)
+              .maybeSingle();
+            const currentQty = existing?.quantity || 0;
+            await supabase.from('godown_stock').upsert({
+              product_id: item.product_id,
+              godown_id: form.godown_id,
+              quantity: currentQty + qty,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'godown_id,product_id' });
+          }
+
           const prod = products.find(p => p.id === item.product_id);
           if (prod) {
-            const newQty = prod.stock_quantity + (parseFloat(item.quantity) || 0);
+            const newQty = prod.stock_quantity + qty;
             await supabase.from('products').update({
               stock_quantity: newQty,
               purchase_price: parseFloat(item.unit_price) || prod.purchase_price,
@@ -536,10 +559,19 @@ export default function Purchase() {
               <input type="date" value={form.entry_date} onChange={e => setForm(f => ({ ...f, entry_date: e.target.value }))} className="input" />
             </div>
             <div>
+              <label className="label flex items-center gap-1.5">
+                <Warehouse className="w-3.5 h-3.5 text-neutral-400" /> Receive Into Godown *
+              </label>
+              <select value={form.godown_id} onChange={e => setForm(f => ({ ...f, godown_id: e.target.value }))} className="input">
+                <option value="">-- Select Godown --</option>
+                {godowns.map(g => <option key={g.id} value={g.id}>{g.name}{g.code ? ` (${g.code})` : ''}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="label">Supplier Invoice #</label>
               <input value={form.invoice_number} onChange={e => setForm(f => ({ ...f, invoice_number: e.target.value }))} className="input" placeholder="Optional" />
             </div>
-            <div className="col-span-2">
+            <div>
               <label className="label">Notes</label>
               <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="input" placeholder="Optional" />
             </div>

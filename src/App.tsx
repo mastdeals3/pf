@@ -6,7 +6,7 @@ import Sidebar from './components/layout/Sidebar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
-import Godowns from './pages/Godowns';
+import GodownStock from './pages/inventory/GodownStock';
 import Purchase from './pages/Purchase';
 import SalesOrders from './pages/sales/SalesOrders';
 import Invoices from './pages/sales/Invoices';
@@ -18,10 +18,9 @@ import Ledger from './pages/finance/Ledger';
 import Expenses from './pages/finance/Expenses';
 import Journal from './pages/finance/Journal';
 import Courier from './pages/Courier';
-import Dispatch from './pages/Dispatch';
 import Reports from './pages/Reports';
 import Automation from './pages/Automation';
-import CompanySettings from './pages/CompanySettings';
+import Settings from './pages/Settings';
 import type { ActivePage, DeliveryChallan as DCType } from './types';
 
 export interface PageState {
@@ -62,11 +61,10 @@ function AppShell() {
       case 'sales-orders': return canAccessSales ? <SalesOrders onNavigate={navigate} /> : <Dashboard onNavigate={navigate} />;
       case 'invoices': return canAccessSales ? <Invoices onNavigate={navigate} prefillFromDC={pageState.prefillDCForInvoice} /> : <Dashboard onNavigate={navigate} />;
       case 'challans': return canAccessSales ? <DeliveryChallan onNavigate={navigate} /> : <Dashboard onNavigate={navigate} />;
-      case 'dispatch': return <Dispatch prefillFromDC={pageState.prefillDCForShipment} onNavigate={navigate} />;
       case 'sales-returns': return canAccessSales ? <SalesReturns /> : <Dashboard onNavigate={navigate} />;
 
       case 'inventory': return canAccessInventory ? <Inventory /> : <Dashboard onNavigate={navigate} />;
-      case 'godowns': return canAccessInventory ? <Godowns /> : <Dashboard onNavigate={navigate} />;
+      case 'godown-stock': return canAccessInventory ? <GodownStock /> : <Dashboard onNavigate={navigate} />;
       case 'purchase': return isAdmin ? <Purchase /> : <Dashboard onNavigate={navigate} />;
 
       case 'finance':
@@ -77,7 +75,7 @@ function AppShell() {
       case 'courier': return <Courier />;
       case 'reports': return <Reports />;
       case 'automation': return isAdmin ? <Automation /> : <Dashboard onNavigate={navigate} />;
-      case 'company-settings': return isAdmin ? <CompanySettings /> : <Dashboard onNavigate={navigate} />;
+      case 'settings': return isAdmin ? <Settings /> : <Dashboard onNavigate={navigate} />;
 
       default: return <Dashboard onNavigate={navigate} />;
     }

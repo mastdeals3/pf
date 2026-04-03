@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Truck, Plus, CreditCard as Edit2, Search, CheckCircle, Clock, ArrowRight, Hash } from 'lucide-react';
+import { Truck, Plus, CreditCard as Edit2, Search, CheckCircle, Clock, ArrowRight, Hash, Warehouse } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../lib/utils';
-import type { DispatchEntry, DeliveryChallan } from '../types';
+import { fetchGodowns } from '../services/godownService';
+import type { DispatchEntry, DeliveryChallan, Godown } from '../types';
 import type { ActivePage } from '../types';
 import Modal from '../components/ui/Modal';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -25,6 +26,7 @@ interface DispatchFormData {
   expected_delivery_date: string;
   notes: string;
   status: string;
+  godown_id: string;
 }
 
 const emptyForm: DispatchFormData = {
@@ -42,6 +44,7 @@ const emptyForm: DispatchFormData = {
   expected_delivery_date: '',
   notes: '',
   status: 'dispatched',
+  godown_id: '',
 };
 
 interface SOOption { id: string; so_number: string; customer_name: string; }
@@ -63,8 +66,9 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
   const [saving, setSaving] = useState(false);
   const [soOptions, setSoOptions] = useState<SOOption[]>([]);
   const [invOptions, setInvOptions] = useState<InvOption[]>([]);
+  const [godowns, setGodowns] = useState<Godown[]>([]);
 
-  useEffect(() => { loadDispatches(); loadOptions(); }, []);
+  useEffect(() => { loadDispatches(); loadOptions(); loadGodownsList(); }, []);
 
   useEffect(() => {
     if (prefillFromDC) {
@@ -96,6 +100,14 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
       .order('created_at', { ascending: false });
     setDispatches((data || []) as DispatchEntry[]);
     setLoading(false);
+  };
+
+  const loadGodownsList = async () => {
+    const data = await fetchGodowns();
+    setGodowns(data);
+    if (data.length > 0) {
+      setForm(f => ({ ...f, godown_id: f.godown_id || data[0].id }));
+    }
   };
 
   const loadOptions = async () => {
@@ -151,6 +163,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
       expected_delivery_date: form.expected_delivery_date || null,
       notes: form.notes.trim(),
       status: form.status,
+      godown_id: form.godown_id || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -291,6 +304,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
                   <tr className="border-b border-neutral-100">
                     <th className="table-header text-left">Dispatch #</th>
                     <th className="table-header text-left">Customer</th>
+                    <th className="table-header text-left">Godown</th>
                     <th className="table-header text-left">Mode</th>
                     <th className="table-header text-left">LR / Tracking</th>
                     <th className="table-header text-left">Dispatch Date</th>
@@ -305,6 +319,9 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
                     <tr key={d.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
                       <td className="table-cell font-medium text-primary-700 font-mono text-xs">{d.dispatch_number}</td>
                       <td className="table-cell font-medium text-neutral-800">{d.customer_name || '—'}</td>
+                      <td className="table-cell text-xs text-neutral-500">
+                        {d.godown_id ? (godowns.find(g => g.id === d.godown_id)?.name || '—') : '—'}
+                      </td>
                       <td className="table-cell">
                         <span className="flex items-center gap-1.5 text-xs">
                           <span>{getModeIcon(d.dispatch_mode || '')}</span>
@@ -386,6 +403,14 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
           <div>
             <label className="form-label">Customer Name</label>
             <input className="input-field" value={form.customer_name} onChange={e => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name" />
+          </div>
+
+          <div>
+            <label className="form-label flex items-center gap-1.5"><Warehouse className="w-3.5 h-3.5 text-neutral-400" /> Dispatched From Godown</label>
+            <select className="input-field" value={form.godown_id} onChange={e => setForm({ ...form, godown_id: e.target.value })}>
+              <option value="">-- Select Godown --</option>
+              {godowns.map(g => <option key={g.id} value={g.id}>{g.name}{g.location ? ` (${g.location})` : ''}</option>)}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

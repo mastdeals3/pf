@@ -57,7 +57,7 @@ export async function reduceGodownStock(
       godown_id: godownId,
       quantity: current - quantity,
       updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: 'godown_id,product_id' });
   return { error: error?.message || null };
 }
 
@@ -74,7 +74,7 @@ export async function addGodownStock(
       godown_id: godownId,
       quantity: current + quantity,
       updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: 'godown_id,product_id' });
 }
 
 export async function createGodown(data: Partial<Godown>): Promise<Godown> {

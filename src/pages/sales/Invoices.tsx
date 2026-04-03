@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Trash2, Eye } from 'lucide-react';
+import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Trash2, Eye, Warehouse } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate, formatDateInput, generateId, exportToCSV } from '../../lib/utils';
 import Modal from '../../components/ui/Modal';
@@ -9,7 +9,8 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InvoicePrint from './InvoicePrint';
 import { useDateRange } from '../../contexts/DateRangeContext';
 import { getSmartRate, updateLastRate } from '../../lib/rateCardService';
-import type { Invoice, Product, Customer, SalesOrder, DeliveryChallan } from '../../types';
+import { fetchGodowns, getGodownStockForProduct, reduceGodownStock } from '../../services/godownService';
+import type { Invoice, Product, Customer, SalesOrder, DeliveryChallan, Godown } from '../../types';
 import type { ActivePage } from '../../types';
 import type { PageState } from '../../App';
 
@@ -46,6 +47,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const [viewItems, setViewItems] = useState<LineItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [godowns, setGodowns] = useState<Godown[]>([]);
+  const [godownStockMap, setGodownStockMap] = useState<Record<string, number>>({});
   const [availableSOs, setAvailableSOs] = useState<SalesOrder[]>([]);
   const [soSearch, setSoSearch] = useState('');
   const [selectedSO, setSelectedSO] = useState<SalesOrder | null>(null);
@@ -61,6 +64,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     payment_terms: 'Due on receipt', notes: '',
     bank_name: '', account_number: '', ifsc_code: '',
     sales_order_id: '',
+    godown_id: '',
   });
   const [items, setItems] = useState<LineItem[]>([{
     product_id: '', product_name: '', description: '', unit: 'pcs',
@@ -153,14 +157,31 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   }, [prefillFromDC]);
 
   const loadData = async () => {
-    const [invRes, productsRes, customersRes] = await Promise.all([
+    const [invRes, productsRes, customersRes, godownsData] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id, name, unit, selling_price').eq('is_active', true),
       supabase.from('customers').select('id, name, phone, alt_phone, address, address2, city, state, pincode').eq('is_active', true).order('name'),
+      fetchGodowns(),
     ]);
     setInvoices(invRes.data || []);
     setProducts(productsRes.data || []);
     setCustomers(customersRes.data || []);
+    setGodowns(godownsData);
+    if (godownsData.length > 0) {
+      setForm(f => ({ ...f, godown_id: f.godown_id || godownsData[0].id }));
+    }
+  };
+
+  const loadGodownStock = async (godownId: string, productIds: string[]) => {
+    if (!godownId || productIds.length === 0) return;
+    const uniqueIds = [...new Set(productIds.filter(Boolean))];
+    const stockEntries = await Promise.all(
+      uniqueIds.map(async pid => {
+        const qty = await getGodownStockForProduct(pid, godownId);
+        return [pid, qty] as [string, number];
+      })
+    );
+    setGodownStockMap(Object.fromEntries(stockEntries));
   };
 
   const loadAvailableSOs = async () => {
@@ -271,6 +292,10 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       return next;
     });
 
+    if (field === 'product_id' && value && form.godown_id) {
+      loadGodownStock(form.godown_id, [...items.map(it => it.product_id), value]);
+    }
+
     if (field === 'product_id' && value && form.customer_id) {
       const product = products.find(p => p.id === value);
       if (product) {
@@ -354,6 +379,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       bank_name: form.bank_name,
       account_number: form.account_number,
       ifsc_code: form.ifsc_code,
+      godown_id: form.godown_id || null,
     }).select().single();
 
     if (inv) {
@@ -378,12 +404,19 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         if (item.product_id) {
           const qty = parseFloat(item.quantity) || 0;
           const rate = parseFloat(item.unit_price) || 0;
+
+          if (form.godown_id) {
+            await reduceGodownStock(item.product_id, form.godown_id, qty);
+          }
+
           await supabase.from('stock_movements').insert({
             product_id: item.product_id,
-            movement_type: 'out',
+            movement_type: 'sale',
             quantity: qty,
             reference_type: 'invoice',
             reference_id: inv.id,
+            godown_id: form.godown_id || null,
+            reference_number: invNumber,
             notes: 'Invoice ' + invNumber,
           });
           const { data: prod } = await supabase
@@ -394,7 +427,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
           if (prod) {
             await supabase
               .from('products')
-              .update({ stock_quantity: (prod.stock_quantity || 0) - qty })
+              .update({ stock_quantity: Math.max(0, (prod.stock_quantity || 0) - qty) })
               .eq('id', item.product_id);
           }
           if (form.customer_id && rate > 0) {
@@ -1085,6 +1118,20 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
               <input value={form.customer_phone} onChange={e => setForm(f => ({ ...f, customer_phone: e.target.value }))} className="input" placeholder="+91 XXXXX" />
             </div>
             <div>
+              <label className="label flex items-center gap-1.5"><Warehouse className="w-3.5 h-3.5 text-neutral-400" /> Dispatch From Godown *</label>
+              <select
+                value={form.godown_id}
+                onChange={e => {
+                  setForm(f => ({ ...f, godown_id: e.target.value }));
+                  if (e.target.value) loadGodownStock(e.target.value, items.map(i => i.product_id));
+                }}
+                className="input"
+              >
+                <option value="">-- Select Godown --</option>
+                {godowns.map(g => <option key={g.id} value={g.id}>{g.name}{g.location ? ` (${g.location})` : ''}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="label">Invoice Date</label>
               <input type="date" value={form.invoice_date} onChange={e => setForm(f => ({ ...f, invoice_date: e.target.value }))} className="input" />
             </div>
@@ -1128,6 +1175,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
                 <thead className="bg-neutral-50">
                   <tr>
                     <th className="table-header text-left">Product / Description</th>
+                    {form.godown_id && <th className="table-header text-right w-20">In Stock</th>}
                     <th className="table-header text-right w-16">Qty</th>
                     <th className="table-header text-right w-24">Rate</th>
                     <th className="table-header text-right w-16">Disc%</th>
@@ -1137,24 +1185,38 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item, i) => (
-                    <tr key={i} className="border-t border-neutral-100">
-                      <td className="px-3 py-2">
-                        <select value={item.product_id} onChange={e => updateItem(i, 'product_id', e.target.value)} className="input text-xs">
-                          <option value="">-- Select Product --</option>
-                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                        {!item.product_id && <input value={item.product_name} onChange={e => updateItem(i, 'product_name', e.target.value)} className="input text-xs mt-1" placeholder="Or type item name..." />}
-                        <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} className="input text-xs mt-1" placeholder="Description (optional)" />
-                      </td>
-                      <td className="px-2 py-2"><input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} className="input text-xs text-right" /></td>
-                      <td className="px-2 py-2"><input type="number" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)} className="input text-xs text-right" /></td>
-                      <td className="px-2 py-2"><input type="number" value={item.discount_pct} onChange={e => updateItem(i, 'discount_pct', e.target.value)} className="input text-xs text-right" /></td>
-                      <td className="px-2 py-2"><input type="number" value={item.tax_pct} onChange={e => updateItem(i, 'tax_pct', e.target.value)} className="input text-xs text-right" /></td>
-                      <td className="px-2 py-2 text-right text-sm font-medium">{formatCurrency(item.total_price)}</td>
-                      <td className="px-2 py-2"><button onClick={() => removeItem(i)} className="text-neutral-400 hover:text-error-500 text-lg leading-none">&times;</button></td>
-                    </tr>
-                  ))}
+                  {items.map((item, i) => {
+                    const availStock = item.product_id ? (godownStockMap[item.product_id] ?? null) : null;
+                    const orderQty = parseFloat(item.quantity) || 0;
+                    const stockWarning = availStock !== null && orderQty > availStock;
+                    return (
+                      <tr key={i} className={`border-t border-neutral-100 ${stockWarning ? 'bg-warning-50' : ''}`}>
+                        <td className="px-3 py-2">
+                          <select value={item.product_id} onChange={e => updateItem(i, 'product_id', e.target.value)} className="input text-xs">
+                            <option value="">-- Select Product --</option>
+                            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          {!item.product_id && <input value={item.product_name} onChange={e => updateItem(i, 'product_name', e.target.value)} className="input text-xs mt-1" placeholder="Or type item name..." />}
+                          <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} className="input text-xs mt-1" placeholder="Description (optional)" />
+                        </td>
+                        {form.godown_id && (
+                          <td className="px-2 py-2 text-right">
+                            {availStock !== null ? (
+                              <span className={`text-xs font-semibold ${availStock === 0 ? 'text-error-600' : stockWarning ? 'text-warning-600' : 'text-success-600'}`}>
+                                {availStock}
+                              </span>
+                            ) : <span className="text-neutral-300 text-xs">—</span>}
+                          </td>
+                        )}
+                        <td className="px-2 py-2"><input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} className={`input text-xs text-right ${stockWarning ? 'border-warning-400' : ''}`} /></td>
+                        <td className="px-2 py-2"><input type="number" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)} className="input text-xs text-right" /></td>
+                        <td className="px-2 py-2"><input type="number" value={item.discount_pct} onChange={e => updateItem(i, 'discount_pct', e.target.value)} className="input text-xs text-right" /></td>
+                        <td className="px-2 py-2"><input type="number" value={item.tax_pct} onChange={e => updateItem(i, 'tax_pct', e.target.value)} className="input text-xs text-right" /></td>
+                        <td className="px-2 py-2 text-right text-sm font-medium">{formatCurrency(item.total_price)}</td>
+                        <td className="px-2 py-2"><button onClick={() => removeItem(i)} className="text-neutral-400 hover:text-error-500 text-lg leading-none">&times;</button></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

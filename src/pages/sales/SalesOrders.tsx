@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, FileText, ChevronDown, ChevronRight, Receipt, Truck, Download, Eye, Pencil, Trash2, Printer, Send } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, FileText, ChevronDown, ChevronRight, Receipt, Truck, Download, Eye, Pencil, Trash2, Printer, Send, Warehouse } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate, generateId, exportToCSV } from '../../lib/utils';
 import Modal from '../../components/ui/Modal';
@@ -8,7 +8,8 @@ import EmptyState from '../../components/ui/EmptyState';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { useDateRange } from '../../contexts/DateRangeContext';
 import { getSmartRate } from '../../lib/rateCardService';
-import type { SalesOrder, SalesOrderItem, Product, Customer } from '../../types';
+import { fetchGodowns, getGodownStockForProduct } from '../../services/godownService';
+import type { SalesOrder, SalesOrderItem, Product, Customer, Godown } from '../../types';
 import type { ActivePage } from '../../types';
 import type { PageState } from '../../App';
 
@@ -33,6 +34,8 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
   const [showModal, setShowModal] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [godowns, setGodowns] = useState<Godown[]>([]);
+  const [godownStockMap, setGodownStockMap] = useState<Record<string, number>>({});
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [rowItems, setRowItems] = useState<Record<string, SalesOrderItem[]>>({});
   const [converting, setConverting] = useState<string | null>(null);
@@ -48,20 +51,38 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
     customer_address: '', customer_address2: '', customer_city: '', customer_state: '', customer_pincode: '',
     so_date: new Date().toISOString().split('T')[0], delivery_date: '',
     courier_charges: '0', discount_amount: '0', notes: '',
+    godown_id: '',
   });
   const [items, setItems] = useState<LineItem[]>([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '', discount_pct: '0', total_price: 0 }]);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
-    const [ordersRes, productsRes, customersRes] = await Promise.all([
+    const [ordersRes, productsRes, customersRes, godownsData] = await Promise.all([
       supabase.from('sales_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id, name, unit, selling_price, stock_quantity').eq('is_active', true),
       supabase.from('customers').select('id, name, phone, address, address2, city, state, pincode, balance, total_revenue').eq('is_active', true).order('name'),
+      fetchGodowns(),
     ]);
     setOrders(ordersRes.data || []);
     setProducts(productsRes.data || []);
     setCustomers(customersRes.data || []);
+    setGodowns(godownsData);
+    if (godownsData.length > 0) {
+      setForm(f => ({ ...f, godown_id: f.godown_id || godownsData[0].id }));
+    }
+  };
+
+  const loadGodownStock = async (godownId: string, productIds: string[]) => {
+    if (!godownId || productIds.length === 0) return;
+    const uniqueIds = [...new Set(productIds.filter(Boolean))];
+    const stockEntries = await Promise.all(
+      uniqueIds.map(async pid => {
+        const qty = await getGodownStockForProduct(pid, godownId);
+        return [pid, qty] as [string, number];
+      })
+    );
+    setGodownStockMap(Object.fromEntries(stockEntries));
   };
 
   const toggleExpand = async (id: string) => {
@@ -96,6 +117,10 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
       return next;
     });
 
+    if (field === 'product_id' && value && form.godown_id) {
+      loadGodownStock(form.godown_id, [...items.map(it => it.product_id), value]);
+    }
+
     if (field === 'product_id' && value && form.customer_id) {
       const product = products.find(p => p.id === value);
       if (product) {
@@ -116,6 +141,9 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
 
   const getStockForItem = (item: LineItem): number | null => {
     if (!item.product_id) return null;
+    if (form.godown_id && godownStockMap[item.product_id] !== undefined) {
+      return godownStockMap[item.product_id];
+    }
     const p = products.find(p => p.id === item.product_id);
     return p ? (p.stock_quantity ?? 0) : null;
   };
@@ -159,6 +187,7 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
       discount_amount: parseFloat(form.discount_amount) || 0,
       total_amount: total,
       notes: form.notes,
+      godown_id: form.godown_id || null,
     }).select().single();
 
     if (so) {
@@ -441,7 +470,8 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
           </button>
           <button onClick={() => {
             setEditOrder(null);
-            setForm({ customer_id: '', customer_name: '', customer_phone: '', customer_address: '', customer_address2: '', customer_city: '', customer_state: '', customer_pincode: '', so_date: new Date().toISOString().split('T')[0], delivery_date: '', courier_charges: '0', discount_amount: '0', notes: '' });
+            setForm({ customer_id: '', customer_name: '', customer_phone: '', customer_address: '', customer_address2: '', customer_city: '', customer_state: '', customer_pincode: '', so_date: new Date().toISOString().split('T')[0], delivery_date: '', courier_charges: '0', discount_amount: '0', notes: '', godown_id: godowns[0]?.id || '' });
+            setGodownStockMap({});
             setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '', discount_pct: '0', total_price: 0 }]);
             setShowModal(true);
           }} className="btn-primary">
@@ -590,6 +620,20 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
               <input value={form.customer_name} onChange={e => setForm(f => ({ ...f, customer_name: e.target.value }))} className="input" placeholder="Full name" />
             </div>
             <div>
+              <label className="label flex items-center gap-1.5"><Warehouse className="w-3.5 h-3.5 text-neutral-400" /> Dispatch Godown</label>
+              <select
+                value={form.godown_id}
+                onChange={e => {
+                  setForm(f => ({ ...f, godown_id: e.target.value }));
+                  if (e.target.value) loadGodownStock(e.target.value, items.map(i => i.product_id));
+                }}
+                className="input"
+              >
+                <option value="">-- Select Godown --</option>
+                {godowns.map(g => <option key={g.id} value={g.id}>{g.name}{g.location ? ` (${g.location})` : ''}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="label">Phone</label>
               <input value={form.customer_phone} onChange={e => setForm(f => ({ ...f, customer_phone: e.target.value }))} className="input" placeholder="+91 XXXXX XXXXX" />
             </div>
@@ -650,14 +694,21 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
                         <td className="px-3 py-2">
                           <select value={item.product_id} onChange={e => updateItem(i, 'product_id', e.target.value)} className="input text-xs">
                             <option value="">-- Select Product --</option>
-                            {products.map(p => <option key={p.id} value={p.id}>{p.name} (Stock: {p.stock_quantity})</option>)}
+                            {products.map(p => {
+                              const stockQty = form.godown_id && godownStockMap[p.id] !== undefined
+                                ? godownStockMap[p.id]
+                                : p.stock_quantity;
+                              return <option key={p.id} value={p.id}>{p.name} (Stock: {stockQty})</option>;
+                            })}
                           </select>
                           {!item.product_id && <input value={item.product_name} onChange={e => updateItem(i, 'product_name', e.target.value)} className="input text-xs mt-1" placeholder="Or type name..." />}
                         </td>
                         <td className="px-3 py-2 w-20">
                           <input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} className="input text-xs text-right" />
                           {overStock && (
-                            <p className="text-[10px] text-amber-600 mt-0.5 text-right">(Only {stock} in stock)</p>
+                            <p className="text-[10px] text-amber-600 mt-0.5 text-right">
+                              ({form.godown_id ? 'Only' : 'Only'} {stock} {form.godown_id ? 'in godown' : 'in stock'})
+                            </p>
                           )}
                         </td>
                         <td className="px-3 py-2 w-24"><input type="number" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)} className="input text-xs text-right" /></td>

@@ -3,7 +3,7 @@ import {
   Plus, Search, Users, Phone, Mail, MapPin, Star, FileText,
   ArrowLeft, Upload, MessageSquare, Calendar, Receipt, ChevronLeft, ChevronRight,
   Clock, Download, Package, ShoppingCart, TrendingUp, Activity, Briefcase,
-  Target, AlertCircle, ArrowRight, CheckCircle2, Hash, Compass
+  Target, AlertCircle, ArrowRight, CheckCircle2, Hash, Compass, Trash2
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatCurrency, formatDate, exportToCSV } from '../lib/utils';
@@ -45,7 +45,7 @@ const STAGE_COLORS: Record<string,string> = {
 const CONVERSION_STAGES = ['Lead','Interested','Site Visit Done','Proposal Given','Converted','Lost'] as const;
 
 type ActiveTab = 'clients' | 'calendar';
-type ProfileTab = 'overview' | 'notes' | 'vastu-plan' | 'appointments' | 'documents' | 'recommendations' | 'sales';
+type ProfileTab = 'overview' | 'notes' | 'vastu-plan' | 'appointments' | 'documents' | 'recommendations' | 'sales' | 'rate-cards';
 type SalesSubTab = 'orders' | 'invoices' | 'payments';
 
 export default function CRM() {
@@ -74,6 +74,9 @@ export default function CRM() {
   const [previewDoc, setPreviewDoc] = useState<{ url: string; type: string; name: string } | null>(null);
   const [confirmDeleteDoc, setConfirmDeleteDoc] = useState<{ id: string; file_path?: string } | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [rateCards, setRateCards] = useState<{ id: string; product_id: string; custom_rate: number; products: { name: string; unit: string; selling_price: number } | null }[]>([]);
+  const [rateCardForm, setRateCardForm] = useState({ product_id: '', custom_rate: '' });
+  const [showRateCardModal, setShowRateCardModal] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -183,6 +186,34 @@ export default function CRM() {
     setRecommendations(recRes.data || []);
     setVastuPlans(vastuRes.data || []);
     loadCustomerDocs(customer.id);
+    loadRateCards(customer.id);
+  };
+
+  const loadRateCards = async (customerId: string) => {
+    const { data } = await supabase
+      .from('customer_rate_cards')
+      .select('id, product_id, custom_rate, products(name, unit, selling_price)')
+      .eq('customer_id', customerId)
+      .eq('is_active', true);
+    setRateCards(data || []);
+  };
+
+  const handleSaveRateCard = async () => {
+    if (!selectedCustomer || !rateCardForm.product_id) return;
+    await supabase.from('customer_rate_cards').upsert({
+      customer_id: selectedCustomer.id,
+      product_id: rateCardForm.product_id,
+      custom_rate: parseFloat(rateCardForm.custom_rate) || 0,
+      is_active: true,
+    }, { onConflict: 'customer_id,product_id' });
+    setShowRateCardModal(false);
+    setRateCardForm({ product_id: '', custom_rate: '' });
+    loadRateCards(selectedCustomer.id);
+  };
+
+  const handleDeleteRateCard = async (id: string) => {
+    await supabase.from('customer_rate_cards').update({ is_active: false }).eq('id', id);
+    if (selectedCustomer) loadRateCards(selectedCustomer.id);
   };
 
   const loadCustomerDocs = async (customerId: string) => {
@@ -607,6 +638,7 @@ export default function CRM() {
       { id: 'documents', label: 'Documents', count: documents.length },
       { id: 'recommendations', label: 'Recommendations', count: recommendations.length },
       { id: 'sales', label: 'Sales History' },
+      { id: 'rate-cards', label: 'Rate Cards', count: rateCards.length || undefined },
     ];
 
     const stageIndex = CONVERSION_STAGES.indexOf(selectedCustomer.conversion_stage || 'Lead');
@@ -1147,6 +1179,68 @@ export default function CRM() {
                 )}
               </div>
             )}
+
+            {profileTab === 'rate-cards' && (
+              <div className="space-y-4">
+                <div className="card">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-800">Custom Rate Cards</h3>
+                      <p className="text-xs text-neutral-400 mt-0.5">Override the default selling price per product for this customer</p>
+                    </div>
+                    <button onClick={() => { setRateCardForm({ product_id: '', custom_rate: '' }); setShowRateCardModal(true); }} className="btn-primary text-xs">
+                      <Plus className="w-3.5 h-3.5" /> Add Rate
+                    </button>
+                  </div>
+                  {rateCards.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-neutral-500">No custom rates set</p>
+                      <p className="text-xs text-neutral-400 mt-1">Default product selling prices are used. Add custom rates to override per product.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-neutral-100">
+                          <th className="table-header text-left">Product</th>
+                          <th className="table-header text-left">Unit</th>
+                          <th className="table-header text-right">Standard Price</th>
+                          <th className="table-header text-right">Custom Rate</th>
+                          <th className="table-header text-right">Diff</th>
+                          <th className="table-header text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-50">
+                        {rateCards.map(rc => {
+                          const std = rc.products?.selling_price || 0;
+                          const diff = rc.custom_rate - std;
+                          return (
+                            <tr key={rc.id} className="hover:bg-neutral-50">
+                              <td className="table-cell font-medium text-neutral-800">{rc.products?.name || '—'}</td>
+                              <td className="table-cell text-xs text-neutral-500">{rc.products?.unit || '—'}</td>
+                              <td className="table-cell text-right text-xs text-neutral-500">{formatCurrency(std)}</td>
+                              <td className="table-cell text-right font-bold text-primary-700">{formatCurrency(rc.custom_rate)}</td>
+                              <td className="table-cell text-right text-xs">
+                                <span className={diff < 0 ? 'text-success-600' : diff > 0 ? 'text-error-600' : 'text-neutral-400'}>
+                                  {diff !== 0 ? (diff > 0 ? '+' : '') + formatCurrency(diff) : '—'}
+                                </span>
+                              </td>
+                              <td className="table-cell text-right">
+                                <button
+                                  onClick={() => handleDeleteRateCard(rc.id)}
+                                  className="p-1 rounded hover:bg-error-50 text-neutral-400 hover:text-error-600 transition-colors"
+                                  title="Remove custom rate">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -1483,6 +1577,33 @@ export default function CRM() {
             </div>
           </div>
         )}
+
+        <Modal isOpen={showRateCardModal} onClose={() => setShowRateCardModal(false)} title="Add Custom Rate" size="sm"
+          footer={
+            <>
+              <button onClick={() => setShowRateCardModal(false)} className="btn-secondary">Cancel</button>
+              <button onClick={handleSaveRateCard} disabled={!rateCardForm.product_id} className="btn-primary disabled:opacity-50">Save Rate</button>
+            </>
+          }>
+          <div className="space-y-3">
+            <div>
+              <label className="label">Product</label>
+              <select value={rateCardForm.product_id} onChange={e => { setRateCardForm(f => ({ ...f, product_id: e.target.value, custom_rate: String(products.find(p => p.id === e.target.value)?.selling_price || '') })); }} className="input">
+                <option value="">-- Select Product --</option>
+                {products.filter(p => !rateCards.find(rc => rc.product_id === p.id)).map(p => (
+                  <option key={p.id} value={p.id}>{p.name} (Default: {formatCurrency(p.selling_price)})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Custom Rate (₹)</label>
+              <input type="number" value={rateCardForm.custom_rate} onChange={e => setRateCardForm(f => ({ ...f, custom_rate: e.target.value }))} className="input" placeholder="0" />
+              {rateCardForm.product_id && (
+                <p className="text-xs text-neutral-400 mt-1">Standard price: {formatCurrency(products.find(p => p.id === rateCardForm.product_id)?.selling_price || 0)}</p>
+              )}
+            </div>
+          </div>
+        </Modal>
 
         <ConfirmDialog isOpen={confirmDeactivate} onClose={() => setConfirmDeactivate(false)} onConfirm={handleDeactivateCustomer} title="Deactivate Client" message={`Are you sure you want to deactivate ${selectedCustomer.name}?`} confirmLabel="Deactivate" isDanger />
         <ConfirmDialog isOpen={!!confirmDeleteNote} onClose={() => setConfirmDeleteNote(null)} onConfirm={handleDeleteNote} title="Delete Note" message="Delete this note permanently?" confirmLabel="Delete" isDanger />

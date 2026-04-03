@@ -50,9 +50,11 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const [godowns, setGodowns] = useState<Godown[]>([]);
   const [godownStockMap, setGodownStockMap] = useState<Record<string, number>>({});
   const [availableSOs, setAvailableSOs] = useState<SalesOrder[]>([]);
+  const [availableDCs, setAvailableDCs] = useState<DeliveryChallan[]>([]);
   const [soSearch, setSoSearch] = useState('');
   const [selectedSO, setSelectedSO] = useState<SalesOrder | null>(null);
   const [selectedSOId, setSelectedSOId] = useState('');
+  const [selectMode, setSelectMode] = useState<'so' | 'dc'>('dc');
   const printRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
@@ -65,6 +67,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     bank_name: '', account_number: '', ifsc_code: '',
     sales_order_id: '',
     godown_id: '',
+    delivery_challan_id: '',
   });
   const [items, setItems] = useState<LineItem[]>([{
     product_id: '', product_name: '', description: '', unit: 'pcs',
@@ -135,6 +138,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         notes: prefillFromDC.notes || '',
         bank_name: '', account_number: '', ifsc_code: '',
         sales_order_id: prefillFromDC.sales_order_id || '',
+        godown_id: godowns[0]?.id || '',
+        delivery_challan_id: prefillFromDC.id || '',
       });
 
       if (so) setSelectedSO(so);
@@ -156,12 +161,17 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     loadAndPrefill();
   }, [prefillFromDC]);
 
+  const [soMap, setSoMap] = useState<Record<string, string>>({});
+  const [dcMap, setDcMap] = useState<Record<string, string>>({});
+
   const loadData = async () => {
-    const [invRes, productsRes, customersRes, godownsData] = await Promise.all([
+    const [invRes, productsRes, customersRes, godownsData, soRes, dcRes] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id, name, unit, selling_price').eq('is_active', true),
       supabase.from('customers').select('id, name, phone, alt_phone, address, address2, city, state, pincode').eq('is_active', true).order('name'),
       fetchGodowns(),
+      supabase.from('sales_orders').select('id, so_number'),
+      supabase.from('delivery_challans').select('id, challan_number'),
     ]);
     setInvoices(invRes.data || []);
     setProducts(productsRes.data || []);
@@ -170,6 +180,12 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     if (godownsData.length > 0) {
       setForm(f => ({ ...f, godown_id: f.godown_id || godownsData[0].id }));
     }
+    const sm: Record<string, string> = {};
+    (soRes.data || []).forEach((s: { id: string; so_number: string }) => { sm[s.id] = s.so_number; });
+    setSoMap(sm);
+    const dm: Record<string, string> = {};
+    (dcRes.data || []).forEach((d: { id: string; challan_number: string }) => { dm[d.id] = d.challan_number; });
+    setDcMap(dm);
   };
 
   const loadGodownStock = async (godownId: string, productIds: string[]) => {
@@ -185,25 +201,37 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   };
 
   const loadAvailableSOs = async () => {
-    const { data: invoicedSOIds } = await supabase
-      .from('invoices')
-      .select('sales_order_id')
-      .not('sales_order_id', 'is', null);
+    const [invoicedSORes, invoicedDCRes] = await Promise.all([
+      supabase.from('invoices').select('sales_order_id').not('sales_order_id', 'is', null).neq('status', 'cancelled'),
+      supabase.from('invoices').select('delivery_challan_id').not('delivery_challan_id', 'is', null).neq('status', 'cancelled'),
+    ]);
 
-    const usedIds = (invoicedSOIds || []).map((r: { sales_order_id: string }) => r.sales_order_id).filter(Boolean);
+    const usedSOIds = (invoicedSORes.data || []).map((r: { sales_order_id: string }) => r.sales_order_id).filter(Boolean);
+    const usedDCIds = (invoicedDCRes.data || []).map((r: { delivery_challan_id: string }) => r.delivery_challan_id).filter(Boolean);
 
-    let query = supabase
+    let soQuery = supabase
       .from('sales_orders')
       .select('*, items:sales_order_items(*)')
-      .in('status', ['confirmed', 'delivered'])
+      .in('status', ['confirmed', 'dispatched', 'delivered'])
       .order('created_at', { ascending: false });
 
-    if (usedIds.length > 0) {
-      query = query.not('id', 'in', `(${usedIds.join(',')})`);
+    if (usedSOIds.length > 0) {
+      soQuery = soQuery.not('id', 'in', `(${usedSOIds.join(',')})`);
     }
 
-    const { data } = await query;
-    setAvailableSOs(data || []);
+    let dcQuery = supabase
+      .from('delivery_challans')
+      .select('*')
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false });
+
+    if (usedDCIds.length > 0) {
+      dcQuery = dcQuery.not('id', 'in', `(${usedDCIds.join(',')})`);
+    }
+
+    const [soRes, dcRes] = await Promise.all([soQuery, dcQuery]);
+    setAvailableSOs(soRes.data || []);
+    setAvailableDCs((dcRes.data || []) as DeliveryChallan[]);
   };
 
   const openSOSelectModal = async () => {
@@ -211,7 +239,53 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     setSoSearch('');
     setSelectedSOId('');
     setSelectedSO(null);
+    setSelectMode('dc');
     setShowSOSelectModal(true);
+  };
+
+  const handleDCSelect = async (dc: DeliveryChallan) => {
+    const { data: dcItems } = await supabase.from('delivery_challan_items').select('*').eq('delivery_challan_id', dc.id);
+    const soCustomer = customers.find(c => c.id === dc.customer_id);
+    let soData: SalesOrder | null = null;
+    if (dc.sales_order_id) {
+      const { data } = await supabase.from('sales_orders').select('*').eq('id', dc.sales_order_id).maybeSingle();
+      soData = data;
+    }
+    setForm({
+      customer_id: dc.customer_id || '',
+      customer_name: dc.customer_name,
+      customer_phone: dc.customer_phone || soCustomer?.phone || '',
+      customer_address: dc.customer_address || soCustomer?.address || '',
+      customer_address2: dc.customer_address2 || soCustomer?.address2 || '',
+      customer_city: dc.customer_city || soCustomer?.city || '',
+      customer_state: dc.customer_state || soCustomer?.state || '',
+      customer_pincode: dc.customer_pincode || soCustomer?.pincode || '',
+      invoice_date: new Date().toISOString().split('T')[0],
+      due_date: '',
+      courier_charges: String(soData?.courier_charges || 0),
+      discount_amount: String(soData?.discount_amount || 0),
+      payment_terms: 'Due on receipt',
+      notes: dc.notes || '',
+      bank_name: '', account_number: '', ifsc_code: '',
+      sales_order_id: dc.sales_order_id || '',
+      godown_id: godowns[0]?.id || '',
+      delivery_challan_id: dc.id,
+    });
+    setItems(
+      (dcItems || []).map(i => ({
+        product_id: i.product_id || '',
+        product_name: i.product_name,
+        description: '',
+        unit: i.unit,
+        quantity: String(i.quantity),
+        unit_price: String(i.unit_price || 0),
+        discount_pct: String(i.discount_pct || 0),
+        tax_pct: '0',
+        total_price: i.total_price || 0,
+      }))
+    );
+    setShowSOSelectModal(false);
+    setShowModal(true);
   };
 
   const handleSOSelect = (soId: string) => {
@@ -356,6 +430,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     const { data: inv } = await supabase.from('invoices').insert({
       invoice_number: invNumber,
       sales_order_id: form.sales_order_id || null,
+      delivery_challan_id: form.delivery_challan_id || null,
       customer_id: form.customer_id || null,
       customer_name: form.customer_name,
       customer_phone: form.customer_phone,
@@ -755,8 +830,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
               <tr>
                 <th className="table-header text-left">Invoice #</th>
                 <th className="table-header text-left">Customer</th>
+                <th className="table-header text-left">SO / DC</th>
                 <th className="table-header text-left">Date</th>
-                <th className="table-header text-left">Due</th>
                 <th className="table-header text-right">Amount</th>
                 <th className="table-header text-right">Outstanding</th>
                 <th className="table-header text-left">Status</th>
@@ -771,8 +846,20 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
                     <p className="font-medium">{inv.customer_name}</p>
                     <p className="text-xs text-neutral-400">{inv.customer_phone}</p>
                   </td>
+                  <td className="table-cell">
+                    <div className="flex flex-col gap-0.5">
+                      {inv.sales_order_id && soMap[inv.sales_order_id] && (
+                        <span className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded w-fit">SO: {soMap[inv.sales_order_id]}</span>
+                      )}
+                      {(inv as Record<string, unknown>).delivery_challan_id && dcMap[(inv as Record<string, unknown>).delivery_challan_id as string] && (
+                        <span className="text-[10px] font-medium bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded w-fit">DC: {dcMap[(inv as Record<string, unknown>).delivery_challan_id as string]}</span>
+                      )}
+                      {!inv.sales_order_id && !(inv as Record<string, unknown>).delivery_challan_id && (
+                        <span className="text-neutral-300 text-xs">—</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="table-cell text-neutral-500">{formatDate(inv.invoice_date)}</td>
-                  <td className="table-cell text-neutral-500">{inv.due_date ? formatDate(inv.due_date) : '-'}</td>
                   <td className="table-cell text-right font-semibold">{formatCurrency(inv.total_amount)}</td>
                   <td className="table-cell text-right">
                     {inv.outstanding_amount > 0 ? (
@@ -818,52 +905,83 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         </div>
       </div>
 
-      <Modal isOpen={showSOSelectModal} onClose={() => setShowSOSelectModal(false)} title="Select Sales Order" size="lg"
+      <Modal isOpen={showSOSelectModal} onClose={() => setShowSOSelectModal(false)} title="Create Invoice From" size="lg"
         footer={
           <>
             <button onClick={() => setShowSOSelectModal(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleProceedWithSO} disabled={!selectedSOId} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">Continue to Invoice</button>
+            {selectMode === 'so' && <button onClick={handleProceedWithSO} disabled={!selectedSOId} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">Continue to Invoice</button>}
           </>
         }>
         <div className="space-y-3">
-          <p className="text-sm text-neutral-500">An invoice must be linked to a Sales Order. Select a confirmed or delivered Sales Order below.</p>
+          <div className="flex gap-1 border-b border-neutral-100 pb-0">
+            <button onClick={() => setSelectMode('dc')} className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'dc' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
+              From Delivery Challan
+            </button>
+            <button onClick={() => setSelectMode('so')} className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'so' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
+              From Sales Order
+            </button>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
             <input
               value={soSearch}
               onChange={e => setSoSearch(e.target.value)}
-              placeholder="Search by SO number or customer..."
+              placeholder={selectMode === 'dc' ? 'Search DC number or customer...' : 'Search SO number or customer...'}
               className="input pl-8 w-full text-xs"
             />
           </div>
-          {filteredSOs.length === 0 ? (
-            <div className="text-center py-8 text-neutral-400 text-sm">
-              No eligible Sales Orders found. Only confirmed or delivered SOs without an existing invoice are shown.
-            </div>
+          {selectMode === 'dc' ? (
+            availableDCs.filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase())).length === 0 ? (
+              <div className="text-center py-8 text-neutral-400 text-sm">No uninvoiced delivery challans found.</div>
+            ) : (
+              <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                {availableDCs
+                  .filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase()))
+                  .map(dc => (
+                    <div key={dc.id} onClick={() => handleDCSelect(dc)}
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-primary-50 transition-colors group">
+                      <div>
+                        <p className="text-sm font-semibold text-primary-700">{dc.challan_number}</p>
+                        <p className="text-xs text-neutral-500">{dc.customer_name}</p>
+                        {dc.sales_order_id && soMap[dc.sales_order_id] && (
+                          <p className="text-[10px] text-blue-600 mt-0.5">SO: {soMap[dc.sales_order_id]}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <StatusBadge status={dc.status} />
+                        <p className="text-xs text-neutral-400 mt-1">{formatDate(dc.challan_date)}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )
           ) : (
-            <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-              {filteredSOs.map(so => (
-                <div
-                  key={so.id}
-                  onClick={() => handleSOSelect(so.id)}
-                  className={`flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 transition-colors ${selectedSOId === so.id ? 'bg-primary-50 border-primary-100' : 'hover:bg-neutral-50'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedSOId === so.id ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
-                      {selectedSOId === so.id && <div className="w-2 h-2 rounded-full bg-white" />}
+            filteredSOs.length === 0 ? (
+              <div className="text-center py-8 text-neutral-400 text-sm">
+                No eligible Sales Orders found.
+              </div>
+            ) : (
+              <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                {filteredSOs.map(so => (
+                  <div key={so.id} onClick={() => handleSOSelect(so.id)}
+                    className={`flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 transition-colors ${selectedSOId === so.id ? 'bg-primary-50 border-primary-100' : 'hover:bg-neutral-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedSOId === so.id ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
+                        {selectedSOId === so.id && <div className="w-2 h-2 rounded-full bg-white" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
+                        <p className="text-xs text-neutral-500">{so.customer_name}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
-                      <p className="text-xs text-neutral-500">{so.customer_name}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">{formatCurrency(so.total_amount)}</p>
+                      <p className="text-xs text-neutral-400">{formatDate(so.so_date)} &middot; <StatusBadge status={so.status} /></p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">{formatCurrency(so.total_amount)}</p>
-                    <p className="text-xs text-neutral-400">{formatDate(so.so_date)} &middot; <StatusBadge status={so.status} /></p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </Modal>
@@ -891,6 +1009,18 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
                 <p className="text-sm font-medium">{selectedInvoice.customer_name}</p>
                 {selectedInvoice.customer_phone && <p className="text-xs text-neutral-500">{selectedInvoice.customer_phone}</p>}
               </div>
+              {selectedInvoice.sales_order_id && (
+                <div>
+                  <p className="label">Sales Order</p>
+                  <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{soMap[selectedInvoice.sales_order_id] || '—'}</span>
+                </div>
+              )}
+              {(selectedInvoice as Record<string, unknown>).delivery_challan_id && (
+                <div>
+                  <p className="label">Delivery Challan</p>
+                  <span className="text-xs font-semibold bg-orange-50 text-orange-700 px-2 py-0.5 rounded">{dcMap[(selectedInvoice as Record<string, unknown>).delivery_challan_id as string] || '—'}</span>
+                </div>
+              )}
               <div>
                 <p className="label">Invoice Date</p>
                 <p className="text-sm">{formatDate(selectedInvoice.invoice_date)}</p>

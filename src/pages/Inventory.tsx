@@ -39,6 +39,7 @@ export default function Inventory() {
     description: '', sku: '', image_url: '',
     direction: '', is_gemstone: false, weight_grams: '',
     total_weight: '', weight_unit: 'grams' as 'grams' | 'carats',
+    low_stock_enabled: true,
   });
   const [stockForm, setStockForm] = useState({ type: 'adjustment', quantity: '', notes: '', movement_label: 'adjustment' });
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
@@ -80,15 +81,23 @@ export default function Inventory() {
       description: '', sku: generateId('SKU'), image_url: '',
       direction: '', is_gemstone: false, weight_grams: '',
       total_weight: '', weight_unit: 'grams',
+      low_stock_enabled: true,
     });
     setShowModal(true);
   };
 
-  const openEdit = (p: Product) => {
+  const [editGodownStocks, setEditGodownStocks] = useState<Record<string, string>>({});
+
+  const openEdit = async (p: Product) => {
     setEditing(p);
     setPendingImageFile(null);
     setImagePreview(p.image_url || '');
     setOpeningStocks({});
+    const { data: stocks } = await supabase.from('godown_stock').select('godown_id, quantity').eq('product_id', p.id);
+    const stocksMap: Record<string, string> = {};
+    (stocks || []).forEach(s => { stocksMap[s.godown_id] = String(s.quantity); });
+    godowns.forEach(g => { if (!stocksMap[g.id]) stocksMap[g.id] = '0'; });
+    setEditGodownStocks(stocksMap);
     setForm({
       name: p.name, category: p.category, unit: p.unit,
       purchase_price: String(p.purchase_price), selling_price: String(p.selling_price),
@@ -98,6 +107,7 @@ export default function Inventory() {
       weight_grams: p.weight_grams ? String(p.weight_grams) : '',
       total_weight: p.total_weight ? String(p.total_weight) : '',
       weight_unit: (p.weight_unit as 'grams' | 'carats') || 'grams',
+      low_stock_enabled: p.low_stock_alert > 0,
     });
     setShowModal(true);
   };
@@ -125,7 +135,7 @@ export default function Inventory() {
       purchase_price: parseFloat(form.purchase_price) || 0,
       selling_price: parseFloat(form.selling_price) || 0,
       stock_quantity: editing ? undefined : totalOpening,
-      low_stock_alert: parseFloat(form.low_stock_alert) || 5,
+      low_stock_alert: form.low_stock_enabled ? (parseFloat(form.low_stock_alert) || 5) : 0,
       description: form.description,
       image_url: imageUrl || null,
       direction: form.direction || null,
@@ -139,6 +149,17 @@ export default function Inventory() {
     if (editing) {
       const { stock_quantity: _sq, remaining_weight: _rw, ...editPayload } = payload;
       await supabase.from('products').update(editPayload).eq('id', editing.id);
+      for (const [godownId, qtyStr] of Object.entries(editGodownStocks)) {
+        const qty = parseFloat(qtyStr) || 0;
+        await supabase.from('godown_stock').upsert({
+          product_id: editing.id,
+          godown_id: godownId,
+          quantity: qty,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'godown_id,product_id' });
+      }
+      const totalStock = Object.values(editGodownStocks).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+      await supabase.from('products').update({ stock_quantity: totalStock }).eq('id', editing.id);
     } else {
       const { data: newProduct } = await supabase.from('products').insert(payload).select().maybeSingle();
       if (newProduct) {
@@ -416,117 +437,138 @@ export default function Inventory() {
           </>
         }
       >
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className="label">Product Image</label>
-            <div className="flex items-center gap-3">
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="w-14 h-14 rounded-xl border-2 border-dashed border-neutral-200 flex items-center justify-center cursor-pointer hover:border-primary-400 transition-colors overflow-hidden flex-shrink-0"
-              >
-                {imagePreview ? (
-                  <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
-                ) : (
-                  <ImagePlus className="w-5 h-5 text-neutral-300" />
-                )}
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="w-16 h-16 rounded-xl border-2 border-dashed border-neutral-200 flex items-center justify-center cursor-pointer hover:border-primary-400 transition-colors overflow-hidden flex-shrink-0"
+            >
+              {imagePreview ? (
+                <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
+              ) : (
+                <ImagePlus className="w-5 h-5 text-neutral-300" />
+              )}
+            </div>
+            <div className="flex-1 grid grid-cols-2 gap-2">
+              <div className="col-span-2">
+                <label className="label">Product Name *</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input" placeholder="e.g., Natural Citrine Point" />
               </div>
               <div>
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-secondary text-xs">
+                <label className="label">SKU</label>
+                <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} className="input text-xs" placeholder="SKU..." />
+              </div>
+              <div>
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-secondary text-xs mt-4 w-full">
                   {imagePreview ? 'Change Image' : 'Upload Image'}
                 </button>
-                <p className="text-[10px] text-neutral-400 mt-1">JPG, PNG up to 5MB</p>
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label">Category</label>
+              <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as Product['category'] }))} className="input text-xs">
+                <option>Astro Products</option>
+                <option>Vastu Items</option>
+                <option>Healing Items</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Unit</label>
+              <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} className="input text-xs">
+                {UNITS.map(u => <option key={u}>{u}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Vastu Direction</label>
+              <input value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))} className="input text-xs" placeholder="N, S, NE..." />
             </div>
           </div>
-          <div className="col-span-2">
-            <label className="label">Product Name *</label>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input" placeholder="e.g., Natural Citrine Point" />
-          </div>
-          <div>
-            <label className="label">SKU</label>
-            <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} className="input" placeholder="AST-CIT-001" />
-          </div>
-          <div>
-            <label className="label">Category</label>
-            <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as Product['category'] }))} className="input">
-              <option>Astro Products</option>
-              <option>Vastu Items</option>
-              <option>Healing Items</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Unit</label>
-            <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} className="input">
-              {UNITS.map(u => <option key={u}>{u}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Low Stock Alert</label>
-            <input type="number" value={form.low_stock_alert} onChange={e => setForm(f => ({ ...f, low_stock_alert: e.target.value }))} className="input" />
-          </div>
-          <div>
-            <label className="label">Vastu Direction</label>
-            <input value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))} className="input" placeholder="e.g., North-East" />
-          </div>
-          <div className="flex flex-col justify-end gap-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.is_gemstone}
-                onChange={e => setForm(f => ({ ...f, is_gemstone: e.target.checked, weight_grams: e.target.checked ? f.weight_grams : '', total_weight: e.target.checked ? f.total_weight : '' }))}
-                className="w-4 h-4 rounded accent-primary-600"
-              />
-              <span className="label mb-0">Is Gemstone (Weight-based)</span>
-            </label>
-            {form.is_gemstone && (
-              <div className="space-y-2">
-                <div>
-                  <label className="label">Weight Unit</label>
-                  <select value={form.weight_unit} onChange={e => setForm(f => ({ ...f, weight_unit: e.target.value as 'grams' | 'carats' }))} className="input">
-                    <option value="grams">Grams (g)</option>
-                    <option value="carats">Carats (ct)</option>
-                  </select>
+
+          <div className="grid grid-cols-3 gap-2 items-end">
+            <div className="flex items-center gap-2 pb-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <div onClick={() => setForm(f => ({ ...f, is_gemstone: !f.is_gemstone }))}
+                  className={`w-8 h-4 rounded-full transition-colors cursor-pointer ${form.is_gemstone ? 'bg-primary-600' : 'bg-neutral-200'}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform border border-neutral-200 ${form.is_gemstone ? 'translate-x-4' : 'translate-x-0'}`} />
                 </div>
-                <div>
-                  <label className="label">Total Weight ({form.weight_unit})</label>
-                  <input type="number" step="0.01" value={form.total_weight} onChange={e => setForm(f => ({ ...f, total_weight: e.target.value }))} className="input" placeholder="e.g., 125.50" />
-                </div>
-                <div>
-                  <label className="label">Weight per piece</label>
-                  <input type="number" step="0.01" value={form.weight_grams} onChange={e => setForm(f => ({ ...f, weight_grams: e.target.value }))} className="input" placeholder="0" />
-                </div>
+                <span className="text-xs text-neutral-600">Gemstone</span>
+              </label>
+            </div>
+            <div className="flex items-center gap-2 pb-1">
+              <div onClick={() => setForm(f => ({ ...f, low_stock_enabled: !f.low_stock_enabled }))}
+                className={`w-8 h-4 rounded-full transition-colors cursor-pointer flex-shrink-0 ${form.low_stock_enabled ? 'bg-primary-600' : 'bg-neutral-200'}`}>
+                <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform border border-neutral-200 ${form.low_stock_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
+              <span className="text-xs text-neutral-600">Low stock alert</span>
+            </div>
+            {form.low_stock_enabled && (
+              <div>
+                <label className="label">Alert at qty</label>
+                <input type="number" value={form.low_stock_alert} onChange={e => setForm(f => ({ ...f, low_stock_alert: e.target.value }))} className="input text-xs" />
               </div>
             )}
           </div>
-          {isAdmin && (
-            <div>
-              <label className="label">Purchase Price (₹)</label>
-              <input type="number" value={form.purchase_price} onChange={e => setForm(f => ({ ...f, purchase_price: e.target.value }))} className="input" placeholder="0" />
+
+          {form.is_gemstone && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="label">Weight Unit</label>
+                <select value={form.weight_unit} onChange={e => setForm(f => ({ ...f, weight_unit: e.target.value as 'grams' | 'carats' }))} className="input text-xs">
+                  <option value="grams">Grams (g)</option>
+                  <option value="carats">Carats (ct)</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Total Weight</label>
+                <input type="number" step="0.01" value={form.total_weight} onChange={e => setForm(f => ({ ...f, total_weight: e.target.value }))} className="input text-xs" placeholder="0" />
+              </div>
+              <div>
+                <label className="label">Weight/piece</label>
+                <input type="number" step="0.01" value={form.weight_grams} onChange={e => setForm(f => ({ ...f, weight_grams: e.target.value }))} className="input text-xs" placeholder="0" />
+              </div>
             </div>
           )}
-          <div>
-            <label className="label">Selling Price (₹)</label>
-            <input type="number" value={form.selling_price} onChange={e => setForm(f => ({ ...f, selling_price: e.target.value }))} className="input" placeholder="0" />
+
+          <div className="grid grid-cols-2 gap-2">
+            {isAdmin && (
+              <div>
+                <label className="label">Purchase Price (₹)</label>
+                <input type="number" value={form.purchase_price} onChange={e => setForm(f => ({ ...f, purchase_price: e.target.value }))} className="input" placeholder="0" />
+              </div>
+            )}
+            <div>
+              <label className="label">Selling Price (₹)</label>
+              <input type="number" value={form.selling_price} onChange={e => setForm(f => ({ ...f, selling_price: e.target.value }))} className="input" placeholder="0" />
+            </div>
           </div>
-          {!editing && godowns.length > 0 && (
+          {godowns.length > 0 && (
             <div className="col-span-2">
-              <label className="label">Opening Stock per Godown</label>
+              <label className="label">{editing ? 'Stock per Godown' : 'Opening Stock per Godown'}</label>
               <div className="grid grid-cols-2 gap-2">
                 {godowns.map(g => (
                   <div key={g.id} className="flex items-center gap-2">
-                    <span className="text-xs text-neutral-600 w-28 truncate shrink-0">{g.name}</span>
+                    <span className="text-xs text-neutral-600 flex-1 truncate">{g.name}</span>
                     <input
                       type="number"
                       min="0"
-                      value={openingStocks[g.id] || '0'}
-                      onChange={e => setOpeningStocks(s => ({ ...s, [g.id]: e.target.value }))}
-                      className="input text-xs py-1.5 w-20"
+                      value={editing ? (editGodownStocks[g.id] || '0') : (openingStocks[g.id] || '0')}
+                      onChange={e => editing
+                        ? setEditGodownStocks(s => ({ ...s, [g.id]: e.target.value }))
+                        : setOpeningStocks(s => ({ ...s, [g.id]: e.target.value }))
+                      }
+                      className="input text-xs py-1.5 w-20 shrink-0"
                       placeholder="0"
                     />
                   </div>
                 ))}
               </div>
+              {editing && (
+                <p className="text-[10px] text-neutral-400 mt-1">Updating these values will directly set the stock quantity per godown</p>
+              )}
             </div>
           )}
           <div className="col-span-2">

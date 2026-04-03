@@ -73,12 +73,15 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
       supabase.from('delivery_challans').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id, name, unit, selling_price').eq('is_active', true),
       supabase.from('customers').select('id, name, phone, address, address2, city, state, pincode').eq('is_active', true).order('name'),
-      supabase.from('sales_orders').select('id, so_number, customer_id, customer_name, status').in('status', ['confirmed', 'dispatched']).order('created_at', { ascending: false }),
+      supabase.from('sales_orders').select('id, so_number, customer_id, customer_name, status').in('status', ['confirmed', 'dispatched', 'delivered']).order('created_at', { ascending: false }),
     ]);
-    setChallans(challansRes.data || []);
+    const allChallans = challansRes.data || [];
+    setChallans(allChallans);
     setProducts(productsRes.data || []);
     setCustomers(customersRes.data || []);
-    setSalesOrders((soRes.data || []) as SalesOrder[]);
+    const linkedSOIds = new Set(allChallans.filter(c => c.sales_order_id && c.status !== 'cancelled').map(c => c.sales_order_id));
+    const allSOs = (soRes.data || []) as SalesOrder[];
+    setSalesOrders(allSOs.filter(so => !linkedSOIds.has(so.id)));
   };
 
   const handleCustomerChange = (id: string) => {
@@ -247,8 +250,16 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     loadData();
   };
 
+  const [editingSOs, setEditingSOs] = useState<SalesOrder[]>([]);
+
   const openEdit = async (dc: DCType) => {
     const { data: existingItems } = await supabase.from('delivery_challan_items').select('*').eq('delivery_challan_id', dc.id);
+    if (dc.sales_order_id) {
+      const { data: thisSO } = await supabase.from('sales_orders').select('id, so_number, customer_id, customer_name, status').eq('id', dc.sales_order_id).maybeSingle();
+      if (thisSO) setEditingSOs([thisSO as SalesOrder]);
+    } else {
+      setEditingSOs([]);
+    }
     setEditChallan(dc);
     setForm({
       customer_id: dc.customer_id || '',
@@ -445,7 +456,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
               disabled={loadingSO}
             >
               <option value="">-- Select Sales Order to auto-fill items & customer --</option>
-              {salesOrders.map(so => (
+              {[...editingSOs, ...salesOrders.filter(so => !editingSOs.find(e => e.id === so.id))].map(so => (
                 <option key={so.id} value={so.id}>{so.so_number} — {so.customer_name}</option>
               ))}
             </select>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, AlertTriangle, Search, BarChart2, ArrowLeft, TrendingUp, TrendingDown, RefreshCw, X } from 'lucide-react';
+import { Package, AlertTriangle, Search, TrendingUp, TrendingDown, RefreshCw, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Godown, GodownStock, StockMovement } from '../../types';
@@ -150,98 +150,8 @@ export default function GodownStockPage() {
     );
   }
 
-  if (drillProduct) {
-    return (
-      <div className="flex-1 overflow-y-auto bg-neutral-50">
-        <div className="p-6 space-y-5">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setDrillProduct(null)} className="p-1.5 rounded-lg hover:bg-neutral-200 transition-colors">
-              <ArrowLeft className="w-4 h-4 text-neutral-600" />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-neutral-900">{drillProduct.product_name}</h1>
-              <p className="text-xs text-neutral-500">{drillProduct.sku} · Stock movements history</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-4">
-            <div className="card">
-              <p className="text-xs text-neutral-500 mb-1">Total Stock</p>
-              <p className="text-2xl font-bold text-neutral-900">{drillProduct.total_quantity}</p>
-              <p className="text-[10px] text-neutral-400 mt-0.5">{drillProduct.unit}</p>
-            </div>
-            {activeTab === 'overall' && godowns.map(g => (
-              <div key={g.id} className="card">
-                <p className="text-xs text-neutral-500 mb-1 truncate">{g.name}</p>
-                <p className="text-2xl font-bold text-neutral-900">{drillProduct.godown_quantities[g.id] || 0}</p>
-                <p className="text-[10px] text-neutral-400 mt-0.5">{drillProduct.unit}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="card">
-            <h3 className="text-sm font-semibold text-neutral-800 mb-4">Movement History</h3>
-            {movementsLoading ? (
-              <div className="flex justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : movements.length === 0 ? (
-              <div className="text-center py-10">
-                <Package className="w-8 h-8 text-neutral-300 mx-auto mb-2" />
-                <p className="text-sm text-neutral-500">No movements recorded yet</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-neutral-100">
-                      <th className="table-header text-left">Date</th>
-                      <th className="table-header text-left">Type</th>
-                      <th className="table-header text-right">Qty</th>
-                      <th className="table-header text-left">Reference</th>
-                      <th className="table-header text-left">Godown</th>
-                      <th className="table-header text-left">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movements.map(m => (
-                      <tr key={m.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
-                        <td className="table-cell text-xs text-neutral-500">{formatDate(m.created_at)}</td>
-                        <td className="table-cell">
-                          <div className="flex items-center gap-1.5">
-                            {movementIcon(m.movement_type)}
-                            <span className="text-xs capitalize text-neutral-700">{m.movement_type}</span>
-                          </div>
-                        </td>
-                        <td className={`table-cell text-right font-bold text-sm ${movementColor(m.movement_type)}`}>
-                          {movementSign(m.movement_type)}{m.quantity}
-                        </td>
-                        <td className="table-cell">
-                          {m.reference_number ? (
-                            <span className="text-xs font-medium text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded">
-                              {m.reference_number}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-neutral-400">—</span>
-                          )}
-                        </td>
-                        <td className="table-cell text-xs text-neutral-500">
-                          {m.godown_id ? (godowns.find(g => g.id === m.godown_id)?.name || '—') : '—'}
-                        </td>
-                        <td className="table-cell text-xs text-neutral-500">{m.notes || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
+    <>
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -388,5 +298,98 @@ export default function GodownStockPage() {
         </div>
       </div>
     </div>
+
+    {drillProduct && (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDrillProduct(null)} />
+        <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+            <div>
+              <h2 className="text-base font-bold text-neutral-900">{drillProduct.product_name}</h2>
+              <p className="text-xs text-neutral-500">{drillProduct.sku} · Stock movements history</p>
+            </div>
+            <button onClick={() => setDrillProduct(null)} className="p-1.5 rounded-lg hover:bg-neutral-100 transition-colors">
+              <X className="w-4 h-4 text-neutral-500" />
+            </button>
+          </div>
+
+          <div className="overflow-y-auto flex-1 p-5 space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="card !p-3">
+                <p className="text-xs text-neutral-500 mb-1">Total Stock</p>
+                <p className="text-xl font-bold text-neutral-900">{drillProduct.total_quantity}</p>
+                <p className="text-[10px] text-neutral-400 mt-0.5">{drillProduct.unit}</p>
+              </div>
+              {godowns.map(g => (
+                <div key={g.id} className="card !p-3">
+                  <p className="text-xs text-neutral-500 mb-1 truncate">{g.name}</p>
+                  <p className="text-xl font-bold text-neutral-900">{drillProduct.godown_quantities[g.id] || 0}</p>
+                  <p className="text-[10px] text-neutral-400 mt-0.5">{drillProduct.unit}</p>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-800 mb-3">Movement History</h3>
+              {movementsLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : movements.length === 0 ? (
+                <div className="text-center py-10">
+                  <Package className="w-8 h-8 text-neutral-300 mx-auto mb-2" />
+                  <p className="text-sm text-neutral-500">No movements recorded yet</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-neutral-100">
+                        <th className="table-header text-left">Date</th>
+                        <th className="table-header text-left">Type</th>
+                        <th className="table-header text-right">Qty</th>
+                        <th className="table-header text-left">Reference</th>
+                        <th className="table-header text-left">Godown</th>
+                        <th className="table-header text-left">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movements.map(m => (
+                        <tr key={m.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                          <td className="table-cell text-xs text-neutral-500">{formatDate(m.created_at)}</td>
+                          <td className="table-cell">
+                            <div className="flex items-center gap-1.5">
+                              {movementIcon(m.movement_type)}
+                              <span className="text-xs capitalize text-neutral-700">{m.movement_type}</span>
+                            </div>
+                          </td>
+                          <td className={`table-cell text-right font-bold text-sm ${movementColor(m.movement_type)}`}>
+                            {movementSign(m.movement_type)}{m.quantity}
+                          </td>
+                          <td className="table-cell">
+                            {m.reference_number ? (
+                              <span className="text-xs font-medium text-primary-700 bg-primary-50 px-1.5 py-0.5 rounded">
+                                {m.reference_number}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-neutral-400">—</span>
+                            )}
+                          </td>
+                          <td className="table-cell text-xs text-neutral-500">
+                            {m.godown_id ? (godowns.find(g => g.id === m.godown_id)?.name || '—') : '—'}
+                          </td>
+                          <td className="table-cell text-xs text-neutral-500">{m.notes || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

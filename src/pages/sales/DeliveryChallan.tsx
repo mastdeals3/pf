@@ -8,6 +8,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import ChallanPrint from './ChallanPrint';
+import { fetchCompanies } from '../../lib/companiesService';
+import type { Company } from '../../lib/companiesService';
 import type { DeliveryChallan as DCType, Product, Customer, SalesOrder, SalesOrderItem } from '../../types';
 import type { ActivePage } from '../../types';
 import type { PageState } from '../../App';
@@ -63,6 +65,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
   const [deleteTarget, setDeleteTarget] = useState<DCType | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loadingSO, setLoadingSO] = useState(false);
+  const [printCompany, setPrintCompany] = useState<Company | undefined>(undefined);
   const [godowns, setGodowns] = useState<{id: string; name: string}[]>([]);
 
   const [form, setForm] = useState(emptyForm);
@@ -358,6 +361,22 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
   const openPrint = async (dc: DCType) => {
     const { data: itemsData } = await supabase.from('delivery_challan_items').select('*').eq('delivery_challan_id', dc.id);
     setSelectedChallan({ ...dc, items: itemsData || [] });
+    // Detect company from first product that has one
+    const dcWithCompany = dc as DCType & { company_id?: string };
+    let coId = dcWithCompany.company_id || null;
+    if (!coId && itemsData && itemsData.length > 0) {
+      const firstProdId = itemsData.find(i => i.product_id)?.product_id;
+      if (firstProdId) {
+        const { data: prod } = await supabase.from('products').select('company_id').eq('id', firstProdId).maybeSingle();
+        coId = prod?.company_id || null;
+      }
+    }
+    if (coId) {
+      const companies = await fetchCompanies();
+      setPrintCompany(companies.find(c => c.id === coId) || undefined);
+    } else {
+      setPrintCompany(undefined);
+    }
     setShowPrint(true);
   };
 
@@ -775,7 +794,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
               <button onClick={() => setShowPrint(false)} className="btn-secondary">Close</button>
             </div>
           </div>
-          <div className="py-6 print-content"><ChallanPrint challan={selectedChallan} /></div>
+          <div className="py-6 print-content"><ChallanPrint challan={selectedChallan} companyOverride={printCompany} /></div>
         </div>
       )}
     </div>

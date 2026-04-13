@@ -1,17 +1,31 @@
 import { formatDate } from '../../lib/utils';
 import { useCompanySettings } from '../../lib/useCompanySettings';
 import type { DeliveryChallan } from '../../types';
+import type { Company } from '../../lib/companiesService';
 
 interface ChallanPrintProps {
   challan: DeliveryChallan;
+  companyOverride?: Company;
 }
 
 function joinAddress(parts: (string | undefined | null)[]) {
   return parts.filter(Boolean).join(', ');
 }
 
-export default function ChallanPrint({ challan }: ChallanPrintProps) {
-  const { company } = useCompanySettings();
+export default function ChallanPrint({ challan, companyOverride }: ChallanPrintProps) {
+  const { company: defaultCompany } = useCompanySettings();
+  const company = companyOverride ? {
+    name: companyOverride.name,
+    tagline: companyOverride.tagline || '',
+    address1: companyOverride.address1 || '',
+    address2: companyOverride.address2 || '',
+    city: companyOverride.city || '',
+    state: companyOverride.state || '',
+    pincode: companyOverride.pincode || '',
+    phone: companyOverride.phone || '',
+    email: companyOverride.email || '',
+    logo_url: companyOverride.logo_url || '',
+  } : { ...defaultCompany, logo_url: '' };
 
   const companyAddress = joinAddress([
     company.address1, company.address2, company.city, company.state, company.pincode,
@@ -26,6 +40,7 @@ export default function ChallanPrint({ challan }: ChallanPrintProps) {
       <div className="border-b-2 border-neutral-800 pb-4 mb-5">
         <div className="flex items-start justify-between">
           <div>
+            {company.logo_url && <img src={company.logo_url} alt={company.name} className="h-10 w-auto object-contain mb-1" />}
             <h1 className="text-xl font-bold text-neutral-800 tracking-wide">{company.name.toUpperCase()}</h1>
             <p className="text-sm text-neutral-600 font-medium">{company.tagline}</p>
             {companyAddress && <p className="text-xs text-neutral-500 mt-0.5">{companyAddress}</p>}

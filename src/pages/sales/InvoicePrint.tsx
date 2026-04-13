@@ -1,6 +1,7 @@
 import { formatCurrency, formatDate, numberToWords } from '../../lib/utils';
 import { useCompanySettings } from '../../lib/useCompanySettings';
 import type { Invoice } from '../../types';
+import type { Company } from '../../lib/companiesService';
 
 function joinAddress(parts: (string | undefined | null)[]) {
   return parts.filter(Boolean).join(', ');
@@ -8,14 +9,35 @@ function joinAddress(parts: (string | undefined | null)[]) {
 
 interface InvoicePrintProps {
   invoice: Invoice;
+  companyOverride?: Company; // if provided, use instead of default company_settings
 }
 
-export default function InvoicePrint({ invoice }: InvoicePrintProps) {
-  const { company } = useCompanySettings();
+export default function InvoicePrint({ invoice, companyOverride }: InvoicePrintProps) {
+  const { company: defaultCompany } = useCompanySettings();
 
-  const companyAddress = joinAddress([
-    company.address1, company.address2, company.city, company.state, company.pincode,
-  ]);
+  // Use company override if available, fall back to default
+  const co = companyOverride ? {
+    name: companyOverride.name,
+    tagline: companyOverride.tagline || '',
+    address1: companyOverride.address1 || '',
+    address2: companyOverride.address2 || '',
+    city: companyOverride.city || '',
+    state: companyOverride.state || '',
+    pincode: companyOverride.pincode || '',
+    phone: companyOverride.phone || '',
+    email: companyOverride.email || '',
+    gstin: companyOverride.gstin || '',
+    pan: companyOverride.pan || '',
+    bank_name: companyOverride.bank_name || '',
+    account_number: companyOverride.account_number || '',
+    ifsc_code: companyOverride.ifsc_code || '',
+    account_holder: companyOverride.account_holder || '',
+    upi_id: companyOverride.upi_id || '',
+    footer_note: companyOverride.footer_note || '',
+    logo_url: companyOverride.logo_url || '',
+  } : defaultCompany;
+
+  const companyAddress = joinAddress([co.address1, co.address2, co.city, co.state, co.pincode]);
   const customerAddress = joinAddress([
     invoice.customer_address, invoice.customer_address2,
     invoice.customer_city, invoice.customer_state, invoice.customer_pincode,
@@ -25,14 +47,19 @@ export default function InvoicePrint({ invoice }: InvoicePrintProps) {
     <div id="invoice-print" className="bg-white p-8 max-w-[800px] mx-auto text-neutral-900 font-sans">
       <div className="border-b-2 border-primary-600 pb-5 mb-5">
         <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-primary-700 tracking-wide">{company.name.toUpperCase()}</h1>
-            <p className="text-sm text-neutral-600 mt-0.5 font-medium">{company.tagline}</p>
-            {companyAddress && <p className="text-xs text-neutral-500 mt-1">{companyAddress}</p>}
-            <div className="flex flex-wrap gap-3 mt-1">
-              {company.phone && <p className="text-xs text-neutral-500">{company.phone}</p>}
-              {company.email && <p className="text-xs text-neutral-500">{company.email}</p>}
-              {company.gstin && <p className="text-xs text-neutral-500">GSTIN: {company.gstin}</p>}
+          <div className="flex items-start gap-3">
+            {co.logo_url && (
+              <img src={co.logo_url} alt={co.name} className="h-14 w-auto object-contain" />
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-primary-700 tracking-wide">{co.name.toUpperCase()}</h1>
+              <p className="text-sm text-neutral-600 mt-0.5 font-medium">{co.tagline}</p>
+              {companyAddress && <p className="text-xs text-neutral-500 mt-1">{companyAddress}</p>}
+              <div className="flex flex-wrap gap-3 mt-1">
+                {co.phone && <p className="text-xs text-neutral-500">{co.phone}</p>}
+                {co.email && <p className="text-xs text-neutral-500">{co.email}</p>}
+                {co.gstin && <p className="text-xs text-neutral-500">GSTIN: {co.gstin}</p>}
+              </div>
             </div>
           </div>
           <div className="text-right">
@@ -48,11 +75,11 @@ export default function InvoicePrint({ invoice }: InvoicePrintProps) {
         <div>
           <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Bill From</p>
           <div className="bg-neutral-50 rounded-lg p-3">
-            <p className="font-semibold text-neutral-900">{company.name}</p>
-            <p className="text-xs text-neutral-600 mt-1">{company.tagline}</p>
+            <p className="font-semibold text-neutral-900">{co.name}</p>
+            {co.tagline && <p className="text-xs text-neutral-600 mt-1">{co.tagline}</p>}
             {companyAddress && <p className="text-xs text-neutral-500 mt-0.5">{companyAddress}</p>}
-            {company.phone && <p className="text-xs text-neutral-500">{company.phone}</p>}
-            {company.email && <p className="text-xs text-neutral-500">{company.email}</p>}
+            {co.phone && <p className="text-xs text-neutral-500">{co.phone}</p>}
+            {co.email && <p className="text-xs text-neutral-500">{co.email}</p>}
           </div>
         </div>
         <div>
@@ -65,7 +92,6 @@ export default function InvoicePrint({ invoice }: InvoicePrintProps) {
         </div>
       </div>
 
-      {/* Items Table */}
       <div className="mb-5">
         <table className="w-full border-collapse">
           <thead>
@@ -102,55 +128,21 @@ export default function InvoicePrint({ invoice }: InvoicePrintProps) {
         </table>
       </div>
 
-      {/* Totals */}
       <div className="flex justify-end mb-5">
         <div className="w-64 space-y-1">
-          <div className="flex justify-between text-sm text-neutral-600">
-            <span>Subtotal</span>
-            <span>{formatCurrency(invoice.subtotal)}</span>
-          </div>
-          {invoice.discount_amount > 0 && (
-            <div className="flex justify-between text-sm text-success-600">
-              <span>Discount</span>
-              <span>-{formatCurrency(invoice.discount_amount)}</span>
-            </div>
-          )}
-          {invoice.tax_amount > 0 && (
-            <div className="flex justify-between text-sm text-neutral-600">
-              <span>Tax</span>
-              <span>{formatCurrency(invoice.tax_amount)}</span>
-            </div>
-          )}
-          {invoice.courier_charges > 0 && (
-            <div className="flex justify-between text-sm text-neutral-600">
-              <span>Courier Charges</span>
-              <span>{formatCurrency(invoice.courier_charges)}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-base font-bold bg-primary-600 text-white px-3 py-2 rounded-lg mt-1">
-            <span>Total Amount</span>
-            <span>{formatCurrency(invoice.total_amount)}</span>
-          </div>
-          {invoice.paid_amount > 0 && (
-            <div className="flex justify-between text-sm text-success-600">
-              <span>Paid</span>
-              <span>-{formatCurrency(invoice.paid_amount)}</span>
-            </div>
-          )}
-          {invoice.outstanding_amount > 0 && (
-            <div className="flex justify-between text-sm font-semibold text-error-600 border-t border-neutral-200 pt-1">
-              <span>Balance Due</span>
-              <span>{formatCurrency(invoice.outstanding_amount)}</span>
-            </div>
-          )}
+          <div className="flex justify-between text-sm text-neutral-600"><span>Subtotal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
+          {invoice.discount_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Discount</span><span>-{formatCurrency(invoice.discount_amount)}</span></div>}
+          {invoice.tax_amount > 0 && <div className="flex justify-between text-sm text-neutral-600"><span>Tax</span><span>{formatCurrency(invoice.tax_amount)}</span></div>}
+          {invoice.courier_charges > 0 && <div className="flex justify-between text-sm text-neutral-600"><span>Courier</span><span>{formatCurrency(invoice.courier_charges)}</span></div>}
+          <div className="flex justify-between text-base font-bold bg-primary-600 text-white px-3 py-2 rounded-lg mt-1"><span>Total Amount</span><span>{formatCurrency(invoice.total_amount)}</span></div>
+          {invoice.paid_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Paid</span><span>-{formatCurrency(invoice.paid_amount)}</span></div>}
+          {invoice.outstanding_amount > 0 && <div className="flex justify-between text-sm font-semibold text-error-600 border-t border-neutral-200 pt-1"><span>Balance Due</span><span>{formatCurrency(invoice.outstanding_amount)}</span></div>}
         </div>
       </div>
 
-      {/* Amount in Words */}
       <div className="bg-accent-50 border border-accent-200 rounded-lg px-4 py-2 mb-5">
         <p className="text-xs text-accent-700 font-medium">
-          <span className="font-bold">Amount in Words: </span>
-          {numberToWords(invoice.total_amount)}
+          <span className="font-bold">Amount in Words: </span>{numberToWords(invoice.total_amount)}
         </p>
       </div>
 
@@ -158,53 +150,24 @@ export default function InvoicePrint({ invoice }: InvoicePrintProps) {
         <div className="border border-neutral-200 rounded-lg p-3">
           <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Bank Details</p>
           <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-neutral-500">Bank</span>
-              <span className="font-medium">{invoice.bank_name || company.bank_name}</span>
-            </div>
-            {(invoice.account_number || company.account_number) && (
-              <div className="flex justify-between text-xs">
-                <span className="text-neutral-500">Account No.</span>
-                <span className="font-medium">{invoice.account_number || company.account_number}</span>
-              </div>
-            )}
-            {(invoice.ifsc_code || company.ifsc_code) && (
-              <div className="flex justify-between text-xs">
-                <span className="text-neutral-500">IFSC Code</span>
-                <span className="font-medium">{invoice.ifsc_code || company.ifsc_code}</span>
-              </div>
-            )}
-            {company.upi_id && (
-              <div className="flex justify-between text-xs">
-                <span className="text-neutral-500">UPI</span>
-                <span className="font-medium">{company.upi_id}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-xs">
-              <span className="text-neutral-500">Payment Terms</span>
-              <span className="font-medium">{invoice.payment_terms || 'Due on receipt'}</span>
-            </div>
+            <div className="flex justify-between text-xs"><span className="text-neutral-500">Bank</span><span className="font-medium">{invoice.bank_name || co.bank_name}</span></div>
+            {(invoice.account_number || co.account_number) && <div className="flex justify-between text-xs"><span className="text-neutral-500">Account No.</span><span className="font-medium">{invoice.account_number || co.account_number}</span></div>}
+            {(invoice.ifsc_code || co.ifsc_code) && <div className="flex justify-between text-xs"><span className="text-neutral-500">IFSC Code</span><span className="font-medium">{invoice.ifsc_code || co.ifsc_code}</span></div>}
+            {co.upi_id && <div className="flex justify-between text-xs"><span className="text-neutral-500">UPI</span><span className="font-medium">{co.upi_id}</span></div>}
+            <div className="flex justify-between text-xs"><span className="text-neutral-500">Payment Terms</span><span className="font-medium">{invoice.payment_terms || 'Due on receipt'}</span></div>
           </div>
         </div>
-
         <div className="border border-neutral-200 rounded-lg p-3 flex flex-col justify-between">
           <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Authorized Signature</p>
           <div className="mt-6 pt-3 border-t border-neutral-300">
-            <p className="text-xs font-semibold text-neutral-700">{company.name}</p>
-            <p className="text-[10px] text-neutral-400">{company.tagline}</p>
+            <p className="text-xs font-semibold text-neutral-700">{co.name}</p>
+            {co.tagline && <p className="text-[10px] text-neutral-400">{co.tagline}</p>}
           </div>
         </div>
       </div>
 
-      {invoice.notes && (
-        <div className="mt-4 text-xs text-neutral-500 border-t border-neutral-100 pt-3">
-          <span className="font-medium text-neutral-700">Notes: </span>{invoice.notes}
-        </div>
-      )}
-
-      <div className="mt-4 text-center text-[10px] text-neutral-400 border-t border-neutral-100 pt-3">
-        {company.footer_note}
-      </div>
+      {invoice.notes && <div className="mt-4 text-xs text-neutral-500 border-t border-neutral-100 pt-3"><span className="font-medium text-neutral-700">Notes: </span>{invoice.notes}</div>}
+      <div className="mt-4 text-center text-[10px] text-neutral-400 border-t border-neutral-100 pt-3">{co.footer_note}</div>
     </div>
   );
 }

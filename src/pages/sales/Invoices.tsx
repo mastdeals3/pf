@@ -9,6 +9,8 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InvoicePrint from './InvoicePrint';
 import { useDateRange } from '../../contexts/DateRangeContext';
 import { getSmartRate, updateLastRate } from '../../lib/rateCardService';
+import { fetchCompanies, getCompanyById } from '../../lib/companiesService';
+import type { Company } from '../../lib/companiesService';
 import { fetchGodowns, getGodownStockForProduct, reduceGodownStock } from '../../services/godownService';
 import type { Invoice, Product, Customer, SalesOrder, DeliveryChallan, Godown } from '../../types';
 import type { ActivePage } from '../../types';
@@ -56,6 +58,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const [selectedSOId, setSelectedSOId] = useState('');
   const [selectMode, setSelectMode] = useState<'so' | 'dc'>('dc');
   const printRef = useRef<HTMLDivElement>(null);
+  const [printCompany, setPrintCompany] = useState<Company | undefined>(undefined);
+  const [splitSummary, setSplitSummary] = useState<{invoiceNumber: string; companyName: string; total: number}[] | null>(null);
 
   const [form, setForm] = useState({
     customer_id: '', customer_name: '', customer_phone: '',
@@ -432,7 +436,16 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   }, 0);
   const editTotal = editSubtotal + (parseFloat(editForm.courier_charges) || 0) - (parseFloat(editForm.discount_amount) || 0);
 
-  const handleSave = async () => {
+  // Helper: create one invoice for a subset of items + a specific company
+  const createOneInvoice = async (
+    invItems: typeof items,
+    companyId: string | null,
+    invSubtotal: number,
+    invTax: number,
+    invCourier: number,
+    invDiscount: number,
+    invTotal: number,
+  ) => {
     const invNumber = generateId('INV');
     const { data: inv } = await supabase.from('invoices').insert({
       invoice_number: invNumber,
@@ -449,108 +462,144 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       invoice_date: form.invoice_date,
       due_date: form.due_date || null,
       status: 'sent',
-      subtotal,
-      tax_amount: taxAmount,
-      courier_charges: parseFloat(form.courier_charges) || 0,
-      discount_amount: parseFloat(form.discount_amount) || 0,
-      total_amount: total,
+      subtotal: invSubtotal,
+      tax_amount: invTax,
+      courier_charges: invCourier,
+      discount_amount: invDiscount,
+      total_amount: invTotal,
       paid_amount: 0,
-      outstanding_amount: total,
+      outstanding_amount: invTotal,
       payment_terms: form.payment_terms,
       notes: form.notes,
       bank_name: form.bank_name,
       account_number: form.account_number,
       ifsc_code: form.ifsc_code,
-      godown_id: form.godown_id || null,
+      company_id: companyId,
     }).select().single();
 
-    if (inv) {
-      const validItems = items.filter(i => i.product_name);
+    if (!inv) return null;
 
-      await supabase.from('invoice_items').insert(
-        validItems.map(i => ({
-          invoice_id: inv.id,
-          product_id: i.product_id || null,
-          product_name: i.product_name,
-          description: i.description,
-          unit: i.unit,
-          quantity: parseFloat(i.quantity) || 0,
-          unit_price: parseFloat(i.unit_price) || 0,
-          discount_pct: parseFloat(i.discount_pct) || 0,
-          tax_pct: parseFloat(i.tax_pct) || 0,
-          total_price: i.total_price,
-        }))
-      );
+    await supabase.from('invoice_items').insert(
+      invItems.map(i => ({
+        invoice_id: inv.id,
+        product_id: i.product_id || null,
+        product_name: i.product_name,
+        description: i.description,
+        unit: i.unit,
+        quantity: parseFloat(i.quantity) || 0,
+        unit_price: parseFloat(i.unit_price) || 0,
+        discount_pct: parseFloat(i.discount_pct) || 0,
+        tax_pct: parseFloat(i.tax_pct) || 0,
+        total_price: i.total_price,
+        godown_id: i.godown_id || null,
+      }))
+    );
 
-      for (const item of validItems) {
-        if (item.product_id) {
-          const qty = parseFloat(item.quantity) || 0;
-          const rate = parseFloat(item.unit_price) || 0;
-
-          if (form.godown_id) {
-            await reduceGodownStock(item.product_id, form.godown_id, qty);
-          }
-
-          await supabase.from('stock_movements').insert({
-            product_id: item.product_id,
-            movement_type: 'sale',
-            quantity: qty,
-            reference_type: 'invoice',
-            reference_id: inv.id,
-            godown_id: form.godown_id || null,
-            reference_number: invNumber,
-            notes: 'Invoice ' + invNumber,
-          });
-          const { data: prod } = await supabase
-            .from('products')
-            .select('stock_quantity')
-            .eq('id', item.product_id)
-            .maybeSingle();
-          if (prod) {
-            await supabase
-              .from('products')
-              .update({ stock_quantity: Math.max(0, (prod.stock_quantity || 0) - qty) })
-              .eq('id', item.product_id);
-          }
-          if (form.customer_id && rate > 0) {
-            await updateLastRate(form.customer_id, item.product_id, rate, 'invoice', inv.id);
-          }
-        }
+    for (const item of invItems) {
+      if (item.product_id) {
+        const qty = parseFloat(item.quantity) || 0;
+        const rate = parseFloat(item.unit_price) || 0;
+        if (item.godown_id) await reduceGodownStock(item.product_id, item.godown_id, qty);
+        await supabase.from('stock_movements').insert({
+          product_id: item.product_id, movement_type: 'sale', quantity: qty,
+          reference_type: 'invoice', reference_id: inv.id,
+          godown_id: item.godown_id || null, reference_number: invNumber,
+          notes: 'Invoice ' + invNumber,
+        });
+        const { data: prod } = await supabase.from('products').select('stock_quantity').eq('id', item.product_id).maybeSingle();
+        if (prod) await supabase.from('products').update({ stock_quantity: Math.max(0, (prod.stock_quantity || 0) - qty) }).eq('id', item.product_id);
+        if (form.customer_id && rate > 0) await updateLastRate(form.customer_id, item.product_id, rate, 'invoice', inv.id);
       }
+    }
 
-      await supabase.from('ledger_entries').insert({
-        entry_date: form.invoice_date,
-        entry_type: 'debit',
-        account_type: 'customer',
-        party_id: form.customer_id || null,
-        party_name: form.customer_name,
-        reference_type: 'invoice',
-        reference_id: inv.id,
-        description: 'Invoice ' + invNumber,
-        amount: total,
-      });
+    await supabase.from('ledger_entries').insert({
+      entry_date: form.invoice_date, entry_type: 'debit', account_type: 'customer',
+      party_id: form.customer_id || null, party_name: form.customer_name,
+      reference_type: 'invoice', reference_id: inv.id,
+      description: 'Invoice ' + invNumber, amount: invTotal,
+    });
 
-      if (form.customer_id) {
-        const { data: cust } = await supabase.from('customers').select('balance, total_revenue').eq('id', form.customer_id).maybeSingle();
-        if (cust) {
-          await supabase.from('customers').update({
-            balance: (cust.balance || 0) + total,
-            total_revenue: (cust.total_revenue || 0) + total,
-            last_interaction: new Date().toISOString(),
-          }).eq('id', form.customer_id);
-        }
+    return { invNumber, invTotal, inv };
+  };
+
+  const handleSave = async () => {
+    const validItems = items.filter(i => i.product_name);
+
+    // --- SPLIT DETECTION ---
+    // Fetch company_id for each product so we can group by entity
+    const productCompanyMap: Record<string, string | null> = {};
+    const productIds = [...new Set(validItems.map(i => i.product_id).filter(Boolean))];
+    if (productIds.length > 0) {
+      const { data: prods } = await supabase.from('products').select('id, company_id').in('id', productIds);
+      (prods || []).forEach(p => { productCompanyMap[p.id] = p.company_id || null; });
+    }
+
+    // Group items by company
+    const groups = new Map<string | null, typeof items>();
+    for (const item of validItems) {
+      const companyId = item.product_id ? (productCompanyMap[item.product_id] ?? null) : null;
+      const key = companyId ?? '__none__';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(item);
+    }
+
+    const realGroups = [...groups.entries()].map(([key, grpItems]) => ({
+      companyId: key === '__none__' ? null : key,
+      items: grpItems,
+    }));
+
+    const courier = parseFloat(form.courier_charges) || 0;
+    const discount = parseFloat(form.discount_amount) || 0;
+    const numGroups = realGroups.length;
+
+    const summaries: {invoiceNumber: string; companyName: string; total: number}[] = [];
+
+    // Fetch company names for summary
+    const allCompanies = await fetchCompanies();
+
+    for (let g = 0; g < realGroups.length; g++) {
+      const { companyId, items: grpItems } = realGroups[g];
+      const grpSubtotal = grpItems.reduce((s, i) => s + i.total_price, 0);
+      const grpTax = grpItems.reduce((s, i) => {
+        const qty = parseFloat(i.quantity) || 0;
+        const price = parseFloat(i.unit_price) || 0;
+        const disc = parseFloat(i.discount_pct) || 0;
+        const tax = parseFloat(i.tax_pct) || 0;
+        return s + (qty * price * (1 - disc / 100) * (tax / 100));
+      }, 0);
+      // Split courier & discount proportionally across groups
+      const fraction = numGroups > 1 ? grpSubtotal / (subtotal || 1) : 1;
+      const grpCourier = numGroups > 1 ? Math.round(courier * fraction) : courier;
+      const grpDiscount = numGroups > 1 ? Math.round(discount * fraction) : discount;
+      const grpTotal = grpSubtotal + grpTax + grpCourier - grpDiscount;
+
+      const result = await createOneInvoice(grpItems, companyId, grpSubtotal, grpTax, grpCourier, grpDiscount, grpTotal);
+      if (result) {
+        const co = allCompanies.find(c => c.id === companyId);
+        summaries.push({ invoiceNumber: result.invNumber, companyName: co?.name || 'Default', total: grpTotal });
       }
+    }
 
-      if (form.sales_order_id) {
-        await supabase
-          .from('sales_orders')
-          .update({ status: 'dispatched' })
-          .eq('id', form.sales_order_id);
+    // Update customer balance once for total
+    if (form.customer_id) {
+      const { data: cust } = await supabase.from('customers').select('balance, total_revenue').eq('id', form.customer_id).maybeSingle();
+      if (cust) {
+        const grandTotal = summaries.reduce((s, x) => s + x.total, 0);
+        await supabase.from('customers').update({
+          balance: (cust.balance || 0) + grandTotal,
+          total_revenue: (cust.total_revenue || 0) + grandTotal,
+          last_interaction: new Date().toISOString(),
+        }).eq('id', form.customer_id);
       }
+    }
+    if (form.sales_order_id) {
+      await supabase.from('sales_orders').update({ status: 'dispatched' }).eq('id', form.sales_order_id);
     }
 
     setShowModal(false);
     loadData();
+    // Show split summary if multiple invoices were created
+    if (summaries.length > 1) setSplitSummary(summaries);
   };
 
   const openView = async (inv: Invoice) => {
@@ -677,6 +726,14 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const openPrint = async (inv: Invoice) => {
     const { data: itemsData } = await supabase.from('invoice_items').select('*').eq('invoice_id', inv.id);
     setSelectedInvoice({ ...inv, items: itemsData || [] });
+    // Load the company profile for this invoice
+    const invWithCompany = inv as Invoice & { company_id?: string };
+    if (invWithCompany.company_id) {
+      const co = await getCompanyById(invWithCompany.company_id);
+      setPrintCompany(co || undefined);
+    } else {
+      setPrintCompany(undefined);
+    }
     setShowPrint(true);
   };
 
@@ -1378,7 +1435,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
             </div>
           </div>
           <div ref={printRef} className="py-6 print-content">
-            <InvoicePrint invoice={selectedInvoice} />
+            <InvoicePrint invoice={selectedInvoice} companyOverride={printCompany} />
           </div>
         </div>
       )}
@@ -1439,6 +1496,36 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         confirmLabel="Cancel Invoice"
         isDanger
       />
+    {/* Split invoice summary */}
+      {splitSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSplitSummary(null)} />
+          <div className="relative bg-white rounded-xl shadow-card-lg w-full max-w-sm p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-9 h-9 bg-success-50 rounded-full flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-success-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-neutral-900">{splitSummary.length} Invoices Created</p>
+                <p className="text-xs text-neutral-500">Products belonged to different billing entities</p>
+              </div>
+            </div>
+            <div className="space-y-2 mb-4">
+              {splitSummary.map(s => (
+                <div key={s.invoiceNumber} className="flex items-center justify-between bg-neutral-50 rounded-lg px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-bold text-primary-700">{s.invoiceNumber}</p>
+                    <p className="text-[11px] text-neutral-500">{s.companyName}</p>
+                  </div>
+                  <p className="text-sm font-bold text-neutral-800">{formatCurrency(s.total)}</p>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setSplitSummary(null)} className="btn-primary w-full justify-center text-xs">Done</button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

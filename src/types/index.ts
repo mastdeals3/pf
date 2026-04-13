@@ -1,4 +1,6 @@
 export interface Product {
+  company_id?: string;
+  company_name?: string; // joined when needed
   id: string;
   sku: string;
   name: string;

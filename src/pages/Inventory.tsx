@@ -7,6 +7,8 @@ import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import type { Product, StockMovement, Godown } from '../types';
+import { fetchCompanies } from '../lib/companiesService';
+import type { Company } from '../lib/companiesService';
 
 const CATEGORIES = ['All', 'Astro Products', 'Vastu Items', 'Healing Items'] as const;
 const UNITS = ['pcs', 'grams', 'kg', 'sets', 'ml', 'liters'];
@@ -27,6 +29,7 @@ export default function Inventory() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [godowns, setGodowns] = useState<Godown[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [openingStocks, setOpeningStocks] = useState<Record<string, string>>({});
 
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
@@ -41,12 +44,13 @@ export default function Inventory() {
     direction: '', is_gemstone: false, weight_grams: '',
     total_weight: '', weight_unit: 'grams' as 'grams' | 'carats',
     low_stock_enabled: true,
+    company_id: '',
   });
   const [stockForm, setStockForm] = useState({ type: 'adjustment', quantity: '', notes: '', movement_label: 'adjustment' });
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); fetchCompanies().then(setCompanies); }, []);
 
   useEffect(() => {
     let data = products;
@@ -375,6 +379,9 @@ export default function Inventory() {
                     </td>
                     <td className="table-cell">
                       <span className={`badge text-[10px] font-semibold uppercase tracking-wider ${getCategoryColor(p.category)}`}>{p.category}</span>
+                      {p.company_id && companies.find(c => c.id === p.company_id) && (
+                        <span className="badge text-[10px] bg-blue-50 text-blue-700 ml-1">{companies.find(c => c.id === p.company_id)!.name}</span>
+                      )}
                     </td>
                     <td className="table-cell text-xs text-neutral-500">{p.unit}</td>
                     <td className="table-cell">
@@ -583,6 +590,14 @@ export default function Inventory() {
               )}
             </div>
           )}
+          <div className="col-span-2">
+            <label className="label">Billing Entity (for invoices)</label>
+            <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))} className="input text-xs">
+              <option value="">-- Select Company --</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Which entity's name appears on invoices for this product?</p>
+          </div>
           <div className="col-span-2">
             <label className="label">Description</label>
             <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="input resize-none h-16" placeholder="Optional description..." />

@@ -20,6 +20,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const body = await req.json();
+    const { userId, newPassword } = body;
+
+    if (!userId || !newPassword || newPassword.length < 6) {
+      return new Response(JSON.stringify({ error: "userId and newPassword (min 6 chars) required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const callerClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -42,13 +51,6 @@ Deno.serve(async (req: Request) => {
     if (profile?.role !== "admin") {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { userId, newPassword } = await req.json();
-    if (!userId || !newPassword || newPassword.length < 6) {
-      return new Response(JSON.stringify({ error: "userId and newPassword (min 6 chars) required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

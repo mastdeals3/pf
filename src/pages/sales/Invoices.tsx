@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Eye, CheckCircle, XCircle, X, ChevronDown } from 'lucide-react';
+import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Eye, CheckCircle, XCircle, X, ChevronDown, Truck, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate, formatDateInput, generateId, nextDocNumber, exportToCSV } from '../../lib/utils';
 import Modal from '../../components/ui/Modal';
@@ -899,7 +899,28 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         </div>
       </div>
 
-      <div className="p-6 space-y-4 no-print">
+      <div className="px-6 pt-4 no-print">
+        <div className="bg-white border border-neutral-100 rounded-xl px-4 py-3 mb-4">
+          <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Sales Flow</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { label: 'Sales Order', color: 'bg-neutral-50 text-neutral-500 border-neutral-200' },
+              { label: 'Delivery Note', color: 'bg-neutral-50 text-neutral-500 border-neutral-200' },
+              { label: 'Invoice', color: 'bg-green-600 text-white border-green-600' },
+              { label: 'Dispatch (optional)', color: 'bg-neutral-50 text-neutral-400 border-neutral-200' },
+            ] as { label: string; color: string }[]).map((step, i, arr) => (
+              <span key={i} className="flex items-center gap-2">
+                <span className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium ${step.color}`}>
+                  {step.label}
+                </span>
+                {i < arr.length - 1 && <span className="text-neutral-300 text-xs">→</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 pb-6 space-y-4 no-print">
         <div className="grid grid-cols-4 gap-4">
           <div className="card">
             <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Total Invoices</p>
@@ -1068,7 +1089,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         </div>
       </div>
 
-      <Modal isOpen={showSOSelectModal} onClose={() => setShowSOSelectModal(false)} title="Create Invoice From" size="lg"
+      <Modal isOpen={showSOSelectModal} onClose={() => setShowSOSelectModal(false)} title="New Invoice" size="lg"
         footer={
           <>
             <button onClick={() => setShowSOSelectModal(false)} className="btn-secondary">Cancel</button>
@@ -1076,12 +1097,17 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
           </>
         }>
         <div className="space-y-3">
+          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-100 rounded-lg">
+            <Truck className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+            <p className="text-xs text-orange-700 font-medium">Recommended: create a Delivery Note first, then invoice from it.</p>
+          </div>
           <div className="flex gap-1 border-b border-neutral-100 pb-0">
-            <button onClick={() => setSelectMode('dc')} className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'dc' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
-              From Delivery Challan
+            <button onClick={() => setSelectMode('dc')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'dc' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
+              <Truck className="w-3 h-3" /> From Delivery Note
+              {selectMode === 'dc' && <span className="ml-1 bg-primary-100 text-primary-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">RECOMMENDED</span>}
             </button>
-            <button onClick={() => setSelectMode('so')} className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'so' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
-              From Sales Order
+            <button onClick={() => setSelectMode('so')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'so' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
+              <FileText className="w-3 h-3" /> From Sales Order
             </button>
           </div>
           <div className="relative">
@@ -1089,13 +1115,17 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
             <input
               value={soSearch}
               onChange={e => setSoSearch(e.target.value)}
-              placeholder={selectMode === 'dc' ? 'Search DC number or customer...' : 'Search SO number or customer...'}
+              placeholder={selectMode === 'dc' ? 'Search delivery note or customer...' : 'Search SO number or customer...'}
               className="input pl-8 w-full text-xs"
             />
           </div>
           {selectMode === 'dc' ? (
             availableDCs.filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase())).length === 0 ? (
-              <div className="text-center py-8 text-neutral-400 text-sm">No uninvoiced delivery challans found.</div>
+              <div className="text-center py-8 space-y-2">
+                <Truck className="w-8 h-8 text-neutral-200 mx-auto" />
+                <p className="text-sm font-medium text-neutral-500">No uninvoiced delivery notes found.</p>
+                <p className="text-xs text-neutral-400">Go to <span className="font-semibold text-orange-600">Delivery Notes</span> and create one first, then invoice from it.</p>
+              </div>
             ) : (
               <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
                 {availableDCs
@@ -1119,32 +1149,38 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
               </div>
             )
           ) : (
-            filteredSOs.length === 0 ? (
-              <div className="text-center py-8 text-neutral-400 text-sm">
-                No eligible Sales Orders found.
+            <>
+              <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg">
+                <AlertCircle className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                <p className="text-xs text-neutral-500">Invoicing directly from SO skips the Delivery Note step.</p>
               </div>
-            ) : (
-              <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-                {filteredSOs.map(so => (
-                  <div key={so.id} onClick={() => handleSOSelect(so.id)}
-                    className={`flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 transition-colors ${selectedSOId === so.id ? 'bg-primary-50 border-primary-100' : 'hover:bg-neutral-50'}`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedSOId === so.id ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
-                        {selectedSOId === so.id && <div className="w-2 h-2 rounded-full bg-white" />}
+              {filteredSOs.length === 0 ? (
+                <div className="text-center py-8 text-neutral-400 text-sm">
+                  No eligible Sales Orders found.
+                </div>
+              ) : (
+                <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                  {filteredSOs.map(so => (
+                    <div key={so.id} onClick={() => handleSOSelect(so.id)}
+                      className={`flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 transition-colors ${selectedSOId === so.id ? 'bg-primary-50 border-primary-100' : 'hover:bg-neutral-50'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedSOId === so.id ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
+                          {selectedSOId === so.id && <div className="w-2 h-2 rounded-full bg-white" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
+                          <p className="text-xs text-neutral-500">{so.customer_name}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
-                        <p className="text-xs text-neutral-500">{so.customer_name}</p>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold">{formatCurrency(so.total_amount)}</p>
+                        <p className="text-xs text-neutral-400">{formatDate(so.so_date)} &middot; <StatusBadge status={so.status} /></p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold">{formatCurrency(so.total_amount)}</p>
-                      <p className="text-xs text-neutral-400">{formatDate(so.so_date)} &middot; <StatusBadge status={so.status} /></p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </Modal>

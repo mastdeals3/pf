@@ -597,10 +597,10 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
           <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Sales Flow</p>
           <div className="flex items-center gap-2 flex-wrap">
             {[
-              { label: 'Sales Order Created', color: 'bg-blue-50 text-blue-700 border-blue-100', icon: FileText },
-              { label: 'Delivery Challan', color: 'bg-orange-50 text-orange-700 border-orange-100', icon: Truck },
-              { label: 'Invoice Raised', color: 'bg-green-50 text-green-700 border-green-100', icon: Receipt },
-              { label: 'Dispatch', color: 'bg-teal-50 text-teal-700 border-teal-100', icon: Send },
+              { label: 'Sales Order', color: 'bg-blue-600 text-white border-blue-600', icon: FileText, active: true },
+              { label: 'Delivery Note', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: Truck, active: false },
+              { label: 'Invoice', color: 'bg-green-50 text-green-700 border-green-200', icon: Receipt, active: false },
+              { label: 'Dispatch (optional)', color: 'bg-neutral-50 text-neutral-500 border-neutral-200', icon: Send, active: false },
             ].map((step, i, arr) => (
               <React.Fragment key={i}>
                 <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium ${step.color}`}>
@@ -675,22 +675,15 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
                     <td className="table-cell text-right">
                       <div className="flex items-center justify-end gap-1">
                         {(o.status === 'confirmed' || o.status === 'draft') && (
-                          <>
-                            <button
-                              onClick={() => createInvoiceFromSO(o)}
-                              disabled={converting === o.id}
-                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 disabled:opacity-50 transition-colors"
-                            >
-                              <Receipt className="w-3 h-3" /> Invoice
-                            </button>
-                            <button
-                              onClick={() => createChallanFromSO(o)}
-                              disabled={converting === o.id}
-                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors"
-                            >
-                              <Truck className="w-3 h-3" /> Challan
-                            </button>
-                          </>
+                          <button
+                            onClick={() => createChallanFromSO(o)}
+                            disabled={converting === o.id}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 transition-colors shadow-sm"
+                            title="Next step: Create Delivery Note"
+                          >
+                            <Truck className="w-3 h-3" />
+                            {converting === o.id ? 'Creating...' : 'Delivery Note'}
+                          </button>
                         )}
                         <button onClick={() => openView(o)} title="View" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Eye className="w-3.5 h-3.5" /></button>
                         <button onClick={() => openSOPrint(o)} title="Print Proforma" className="p-1.5 rounded-lg text-neutral-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"><Printer className="w-3.5 h-3.5" /></button>

@@ -431,7 +431,28 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
         </div>
       </div>
 
-      <div className="p-6 no-print">
+      <div className="px-6 pt-4 no-print">
+        <div className="bg-white border border-neutral-100 rounded-xl px-4 py-3 mb-4">
+          <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Sales Flow</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { label: 'Sales Order', color: 'bg-neutral-50 text-neutral-500 border-neutral-200' },
+              { label: 'Delivery Note', color: 'bg-orange-600 text-white border-orange-600' },
+              { label: 'Invoice', color: 'bg-neutral-50 text-neutral-500 border-neutral-200' },
+              { label: 'Dispatch (optional)', color: 'bg-neutral-50 text-neutral-400 border-neutral-200' },
+            ] as { label: string; color: string }[]).map((step, i, arr) => (
+              <span key={i} className="flex items-center gap-2">
+                <span className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium ${step.color}`}>
+                  {step.label}
+                </span>
+                {i < arr.length - 1 && <span className="text-neutral-300 text-xs">→</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 pb-6 no-print">
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-neutral-50 border-b border-neutral-100">
@@ -472,15 +493,15 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
                   <td className="table-cell text-right">
                     <div className="flex items-center justify-end gap-1">
                       {dc.status !== 'cancelled' && (
-                        <button onClick={() => onNavigate('courier', { prefillDCForShipment: dc })} title="Create Shipment"
-                          className="p-1.5 rounded-lg text-neutral-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                          <Send className="w-3.5 h-3.5" />
+                        <button onClick={() => onNavigate('invoices', { prefillDCForInvoice: dc })} title="Next step: Create Invoice"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm">
+                          <Receipt className="w-3 h-3" /> Invoice
                         </button>
                       )}
                       {dc.status !== 'cancelled' && (
-                        <button onClick={() => onNavigate('invoices', { prefillDCForInvoice: dc })} title="Create Invoice"
-                          className="p-1.5 rounded-lg text-neutral-400 hover:text-primary-600 hover:bg-primary-50 transition-colors">
-                          <Receipt className="w-3.5 h-3.5" />
+                        <button onClick={() => onNavigate('courier', { prefillDCForShipment: dc })} title="Create Dispatch"
+                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors">
+                          <Send className="w-3 h-3" /> Dispatch
                         </button>
                       )}
                       <button onClick={() => openView(dc)} title="View" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Eye className="w-3.5 h-3.5" /></button>

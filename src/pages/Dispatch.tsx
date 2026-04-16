@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Truck, Plus, CreditCard as Edit2, Search, CheckCircle, Clock, ArrowRight, Hash, Warehouse, AlertCircle, Lock, Download, X, XCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { formatDate, exportToCSV } from '../lib/utils';
+import { formatDate, exportToCSV, nextDocNumber } from '../lib/utils';
 import { fetchGodowns } from '../services/godownService';
 import type { DispatchEntry, DeliveryChallan, Godown } from '../types';
 import type { ActivePage } from '../types';
@@ -193,19 +193,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
         }
       }
     } else {
-      // Generate sequential dispatch number DSP-YYYYMM-NNN
-      const now = new Date();
-      const prefix = `DSP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const { data: lastDsp } = await supabase
-        .from('dispatch_entries')
-        .select('dispatch_number')
-        .ilike('dispatch_number', `${prefix}%`)
-        .order('dispatch_number', { ascending: false })
-        .limit(1);
-      const lastSeq = lastDsp?.[0]?.dispatch_number
-        ? parseInt(lastDsp[0].dispatch_number.split('-').pop() || '0', 10)
-        : 0;
-      const dispatch_number = `${prefix}-${String(lastSeq + 1).padStart(3, '0')}`;
+      const dispatch_number = await nextDocNumber('DSP', supabase);
       await supabase.from('dispatch_entries').insert({ ...payload, dispatch_number });
       if (form.reference_type === 'sales_order' && form.sales_order_id) {
         await supabase.from('sales_orders').update({ status: 'dispatched' }).eq('id', form.sales_order_id);

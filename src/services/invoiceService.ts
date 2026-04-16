@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { nextDocNumber } from '../lib/utils';
 import type { Invoice } from '../types';
 
 export async function fetchInvoices(filters?: { status?: string; customerId?: string }): Promise<Invoice[]> {
@@ -26,7 +27,7 @@ export async function createInvoice(
   invoice: Partial<Invoice>,
   items: { product_id: string; product_name: string; quantity: number; rate: number; total_price: number; unit?: string; hsn_code?: string }[]
 ): Promise<{ invoice: Invoice; errors: string[] }> {
-  const invoice_number = await generateInvoiceNumber();
+  const invoice_number = await nextDocNumber('INV', supabase);
   const { data, error } = await supabase
     .from('invoices')
     .insert({ ...invoice, invoice_number })
@@ -43,19 +44,6 @@ export async function createInvoice(
   return { invoice: data as Invoice, errors: [] };
 }
 
-export async function generateInvoiceNumber(): Promise<string> {
-  const now = new Date();
-  const prefix = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const { data } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .ilike('invoice_number', `${prefix}%`)
-    .order('invoice_number', { ascending: false })
-    .limit(1);
-  const last = data?.[0]?.invoice_number;
-  const seq = last ? parseInt(last.split('-').pop() || '0', 10) + 1 : 1;
-  return `${prefix}-${String(seq).padStart(3, '0')}`;
-}
 
 export async function recordPayment(
   invoiceId: string,

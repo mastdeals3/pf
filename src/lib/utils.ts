@@ -53,11 +53,10 @@ export const generateId = (prefix: string): string => {
   return `${prefix}-${year}${month}-${random}`;
 };
 
-/** Calls the DB atomic sequence — use for SO, DC, INV, EXP */
-export async function nextDocNumber(prefix: 'SO' | 'DC' | 'INV' | 'EXP', supabaseClient: import('@supabase/supabase-js').SupabaseClient): Promise<string> {
+/** Calls the DB atomic sequence — returns format PREFIX/YYMM/001 */
+export async function nextDocNumber(prefix: 'SO' | 'DC' | 'INV' | 'EXP' | 'PO' | 'DSP', supabaseClient: import('@supabase/supabase-js').SupabaseClient): Promise<string> {
   const { data, error } = await supabaseClient.rpc('next_document_number', { p_prefix: prefix });
   if (error || !data) {
-    // Fallback to client-side if RPC fails
     return generateId(prefix);
   }
   return data as string;

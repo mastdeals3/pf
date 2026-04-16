@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { updateLastRate } from '../lib/rateCardService';
+import { nextDocNumber } from '../lib/utils';
 import type { SalesOrder } from '../types';
 
 export async function fetchSalesOrders(filters?: { status?: string; customerId?: string }): Promise<SalesOrder[]> {
@@ -27,7 +28,7 @@ export async function createSalesOrder(
   order: Partial<SalesOrder>,
   items: { product_id: string; product_name: string; quantity: number; rate: number; total_price: number; unit?: string }[]
 ): Promise<SalesOrder> {
-  const so_number = await generateSoNumber();
+  const so_number = await nextDocNumber('SO', supabase);
   const { data, error } = await supabase
     .from('sales_orders')
     .insert({ ...order, so_number, status: order.status || 'draft' })
@@ -68,16 +69,3 @@ export async function updateSalesOrderStatus(id: string, status: SalesOrder['sta
   await supabase.from('sales_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
 }
 
-export async function generateSoNumber(): Promise<string> {
-  const now = new Date();
-  const prefix = `SO-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const { data } = await supabase
-    .from('sales_orders')
-    .select('so_number')
-    .ilike('so_number', `${prefix}%`)
-    .order('so_number', { ascending: false })
-    .limit(1);
-  const last = data?.[0]?.so_number;
-  const seq = last ? parseInt(last.split('-').pop() || '0', 10) + 1 : 1;
-  return `${prefix}-${String(seq).padStart(3, '0')}`;
-}

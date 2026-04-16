@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, FileText, Building2, ChevronDown, ChevronRight, X, Download, Warehouse } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { formatCurrency, formatDate, generateId, exportToCSV } from '../lib/utils';
+import { formatCurrency, formatDate, nextDocNumber, exportToCSV } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import Modal from '../components/ui/Modal';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -147,7 +147,7 @@ export default function Purchase() {
       await supabase.from('purchase_entry_items').insert(updatedItems);
       setEntryItems(prev => ({ ...prev, [editingEntry.id]: updatedItems }));
     } else {
-      const entryNumber = generateId('PE');
+      const entryNumber = await nextDocNumber('PO', supabase);
       const { data: entry } = await supabase.from('purchase_entries').insert({
         entry_number: entryNumber,
         supplier_id: form.supplier_id || null,

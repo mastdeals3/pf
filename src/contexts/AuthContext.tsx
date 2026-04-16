@@ -73,16 +73,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, displayName: string, role: UserRole) => {
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { display_name: displayName, role } },
-    });
-    if (error) return { error: error.message };
-    if (data.user) {
-      await supabase.from('user_profiles').upsert({
-        id: data.user.id, email, display_name: displayName, role,
-      });
-    }
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    if (!currentSession?.access_token) return { error: 'Not authenticated. Please reload.' };
+
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-create-user`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentSession.access_token}`,
+        },
+        body: JSON.stringify({ email, password, displayName, role }),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) return { error: json.error || 'Failed to create user.' };
     return { error: null };
   };
 

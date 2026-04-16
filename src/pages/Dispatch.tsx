@@ -77,6 +77,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [deliverTarget, setDeliverTarget] = useState<{ entry: DispatchEntry; newStatus: string } | null>(null);
 
   useEffect(() => { loadDispatches(); loadOptions(); loadGodownsList(); }, []);
 
@@ -236,10 +237,22 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
   };
 
   const updateStatus = async (d: DispatchEntry, newStatus: string) => {
-    await supabase.from('dispatch_entries').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', d.id);
-    if (newStatus === 'delivered' && d.sales_order_id) {
-      await supabase.from('sales_orders').update({ status: 'delivered' }).eq('id', d.sales_order_id);
+    if (newStatus === 'delivered') {
+      setDeliverTarget({ entry: d, newStatus });
+      return;
     }
+    await supabase.from('dispatch_entries').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', d.id);
+    await loadDispatches();
+  };
+
+  const confirmDelivered = async () => {
+    if (!deliverTarget) return;
+    const { entry } = deliverTarget;
+    await supabase.from('dispatch_entries').update({ status: 'delivered', updated_at: new Date().toISOString() }).eq('id', entry.id);
+    if (entry.sales_order_id) {
+      await supabase.from('sales_orders').update({ status: 'delivered' }).eq('id', entry.sales_order_id);
+    }
+    setDeliverTarget(null);
     await loadDispatches();
   };
 
@@ -255,17 +268,18 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
   });
 
   const handleExport = () => {
+    const statusLabel = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     exportToCSV(filtered.map(d => ({
-      'Dispatch #': d.dispatch_number,
-      Customer: d.customer_name || '',
-      Mode: d.dispatch_mode || '',
-      Transport: d.transport_name || '',
-      'LR/Tracking': d.lr_number || '',
+      'Dispatch No': d.dispatch_number,
+      'Customer Name': d.customer_name || '',
+      'Dispatch Mode': d.dispatch_mode || '',
+      'Transport / Courier': d.transport_name || '',
+      'LR / Tracking No': d.lr_number || '',
       'Dispatch Date': d.dispatch_date,
       'Expected Delivery': d.expected_delivery_date || '',
-      Status: d.status,
-      Reference: d.sales_order_id ? `SO: ${soMap[d.sales_order_id] || d.sales_order_id}` : d.invoice_id ? `INV: ${invMap[d.invoice_id] || d.invoice_id}` : '',
-      Notes: d.notes || '',
+      'Status': statusLabel(d.status),
+      'Reference': d.sales_order_id ? `SO: ${soMap[d.sales_order_id] || d.sales_order_id}` : d.invoice_id ? `INV: ${invMap[d.invoice_id] || d.invoice_id}` : '',
+      'Notes': d.notes || '',
     })), 'dispatch');
   };
 
@@ -402,7 +416,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
                     const isCancelled = d.status === 'cancelled';
                     const isLocked = isDelivered || isCancelled;
                     return (
-                      <tr key={d.id} className={`border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${isLocked ? 'opacity-60' : ''}`}>
+                      <tr key={d.id} className={`border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${isCancelled ? 'opacity-50 bg-neutral-50' : isDelivered ? 'opacity-70' : ''}`}>
                         <td className="table-cell font-medium text-primary-700 font-mono text-xs">{d.dispatch_number}</td>
                         <td className="table-cell font-medium text-neutral-800">{d.customer_name || '—'}</td>
                         <td className="table-cell text-xs text-neutral-500">
@@ -516,9 +530,19 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
         onClose={() => setCancelTarget(null)}
         onConfirm={() => cancelTarget && cancelDispatch(cancelTarget)}
         title="Cancel Dispatch"
-        message={cancelTarget ? `Are you sure you want to cancel dispatch ${cancelTarget.dispatch_number}? This cannot be undone.` : ''}
+        message={cancelTarget ? `Are you sure you want to cancel dispatch ${cancelTarget.dispatch_number}?` : ''}
+        warning="This cannot be undone."
         confirmLabel="Cancel Dispatch"
         isDanger
+      />
+
+      <ConfirmDialog
+        isOpen={!!deliverTarget}
+        onClose={() => setDeliverTarget(null)}
+        onConfirm={confirmDelivered}
+        title="Mark as Delivered"
+        message={deliverTarget ? `Confirm delivery for dispatch ${deliverTarget.entry.dispatch_number} — ${deliverTarget.entry.customer_name}?` : ''}
+        confirmLabel="Yes, Mark Delivered"
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Dispatch' : 'New Dispatch Entry'} maxWidth="max-w-2xl">

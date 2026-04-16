@@ -825,21 +825,25 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   };
 
   const handleExportCSV = () => {
+    const statusLabel = (s: string) => {
+      if (s === 'sent') return 'Pending';
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    };
     exportToCSV(
       filtered.map(inv => ({
-        'Invoice #': inv.invoice_number,
-        'Customer': inv.customer_name,
-        'Phone': inv.customer_phone || '',
+        'Invoice No': inv.invoice_number,
+        'Customer Name': inv.customer_name,
+        'Customer Phone': inv.customer_phone || '',
         'Invoice Date': inv.invoice_date,
         'Due Date': inv.due_date || '',
-        'Subtotal': inv.subtotal,
-        'Tax Amount': inv.tax_amount,
-        'Courier Charges': inv.courier_charges || 0,
-        'Discount': inv.discount_amount || 0,
-        'Total Amount': inv.total_amount,
-        'Paid Amount': inv.paid_amount,
-        'Outstanding': inv.outstanding_amount,
-        'Status': inv.status,
+        'Status': statusLabel(inv.status),
+        'Subtotal (₹)': inv.subtotal,
+        'Tax (₹)': inv.tax_amount,
+        'Courier (₹)': inv.courier_charges || 0,
+        'Discount (₹)': inv.discount_amount || 0,
+        'Total (₹)': inv.total_amount,
+        'Paid (₹)': inv.paid_amount,
+        'Outstanding (₹)': inv.outstanding_amount,
         'Payment Terms': inv.payment_terms || '',
         'Notes': inv.notes || '',
       })),
@@ -852,7 +856,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     const matchStatus = statusFilter === 'All'
       ? i.status !== 'cancelled'
       : statusFilter === 'Pending'
-        ? ['sent', 'draft', 'overdue'].includes(i.status)
+        ? i.status === 'sent'
         : i.status === statusFilter.toLowerCase();
     const matchDate = i.invoice_date >= dateRange.from && i.invoice_date <= dateRange.to;
     const matchCustomer = !filterCustomer || i.customer_name === filterCustomer;
@@ -867,7 +871,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const totalOutstanding = invoices.filter(i => i.status !== 'cancelled').reduce((s, i) => s + (i.outstanding_amount || 0), 0);
   const paidThisMonth = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.total_amount, 0);
 
-  const STATUSES = ['All', 'Pending', 'Partial', 'Paid'];
+  const STATUSES = ['All', 'Draft', 'Pending', 'Overdue', 'Partial', 'Paid'];
 
   const filteredSOs = availableSOs.filter(so =>
     so.customer_name.toLowerCase().includes(soSearch.toLowerCase()) ||
@@ -965,8 +969,9 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
               {filtered.map(inv => {
                 const isPaid = inv.status === 'paid' || inv.outstanding_amount <= 0;
                 const isOverdue = inv.status === 'overdue';
+                const isCancelled = inv.status === 'cancelled';
                 return (
-                  <tr key={inv.id} className={`border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${isOverdue ? 'bg-error-50/30' : ''}`}>
+                  <tr key={inv.id} className={`border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${isCancelled ? 'opacity-50 bg-neutral-50' : isOverdue ? 'bg-error-50/30' : ''}`}>
                     <td className="table-cell font-medium text-primary-700">{inv.invoice_number}</td>
                     <td className="table-cell">
                       <p className="font-medium">{inv.customer_name}</p>
@@ -1636,7 +1641,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
         title="Cancel Invoice"
-        message={selectedInvoice ? `Are you sure you want to cancel invoice ${selectedInvoice.invoice_number}? This action cannot be undone.` : ''}
+        message={selectedInvoice ? `Are you sure you want to cancel invoice ${selectedInvoice.invoice_number}?` : ''}
+        warning="This will reverse stock and cannot be undone."
         confirmLabel="Cancel Invoice"
         isDanger
       />
@@ -1663,9 +1669,11 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
           loadData();
         }}
         title="Cancel Invoice"
-        message={cancelTarget ? `Cancel invoice ${cancelTarget.invoice_number} for ${cancelTarget.customer_name}? This cannot be undone.` : ''}
+        message={cancelTarget ? `Cancel invoice ${cancelTarget.invoice_number} for ${cancelTarget.customer_name}?` : ''}
+        warning="This will reverse stock and cannot be undone."
         confirmLabel={cancellingInvoiceId ? 'Cancelling...' : 'Yes, Cancel'}
         isDanger
+        suppressAutoClose
       />
 
     {/* Split invoice summary */}

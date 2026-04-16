@@ -6,11 +6,13 @@ interface ConfirmDialogProps {
   onConfirm: () => void;
   title: string;
   message: string;
+  warning?: string;
   confirmLabel?: string;
   isDanger?: boolean;
+  suppressAutoClose?: boolean;
 }
 
-export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Confirm', isDanger = false }: ConfirmDialogProps) {
+export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, warning, confirmLabel = 'Confirm', isDanger = false, suppressAutoClose = false }: ConfirmDialogProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -23,12 +25,17 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
           <div>
             <h3 className="text-sm font-semibold text-neutral-900">{title}</h3>
             <p className="text-sm text-neutral-500 mt-1">{message}</p>
+            {warning && (
+              <p className="text-xs text-error-600 font-medium mt-2 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 shrink-0" /> {warning}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex gap-2 mt-5 justify-end">
           <button onClick={onClose} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
           <button
-            onClick={() => { onConfirm(); onClose(); }}
+            onClick={() => { onConfirm(); if (!suppressAutoClose) onClose(); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors ${isDanger ? 'bg-error-600 hover:bg-error-700' : 'bg-primary-600 hover:bg-primary-700'}`}
           >
             {confirmLabel}

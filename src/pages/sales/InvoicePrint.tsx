@@ -12,9 +12,11 @@ interface InvoicePrintProps {
   companyOverride?: Company;
   printMode?: 'normal' | 'b2b';
   shipToCustomer?: Customer;
+  b2bShipTo?: { name: string; phone?: string; address?: string };
+  b2bPriceMap?: Record<string, number>;
 }
 
-export default function InvoicePrint({ invoice, companyOverride, printMode = 'normal', shipToCustomer }: InvoicePrintProps) {
+export default function InvoicePrint({ invoice, companyOverride, printMode = 'normal', shipToCustomer, b2bShipTo, b2bPriceMap = {} }: InvoicePrintProps) {
   const { company: defaultCompany } = useCompanySettings();
   const isB2B = printMode === 'b2b';
 
@@ -48,7 +50,24 @@ export default function InvoicePrint({ invoice, companyOverride, printMode = 'no
     ? joinAddress([shipToCustomer.address, (shipToCustomer as Customer & { address2?: string }).address2, shipToCustomer.city, shipToCustomer.state, shipToCustomer.pincode])
     : '';
 
-  // In B2B mode: seller = invoice customer (Bill To), buyer = ship_to_customer (Ship To)
+  const resolvedBuyerName = isB2B ? (b2bShipTo?.name || shipToCustomer?.name || '') : '';
+  const resolvedBuyerPhone = isB2B ? (b2bShipTo?.phone || shipToCustomer?.phone || '') : '';
+  const resolvedBuyerAddress = isB2B ? (b2bShipTo?.address || shipToAddress) : '';
+
+  const b2bItems = isB2B && Object.keys(b2bPriceMap).length > 0
+    ? (invoice.items || []).map(item => {
+        const bp = item.product_id ? b2bPriceMap[item.product_id] : undefined;
+        if (bp != null) {
+          return { ...item, unit_price: bp, total_price: item.quantity * bp };
+        }
+        return item;
+      })
+    : invoice.items;
+
+  const b2bSubtotal = isB2B && b2bItems ? b2bItems.reduce((s, i) => s + i.total_price, 0) : invoice.subtotal;
+  const b2bTotal = isB2B ? b2bSubtotal + (invoice.courier_charges || 0) - (invoice.discount_amount || 0) : invoice.total_amount;
+
+  // In B2B mode: seller = invoice customer (Bill To), buyer = ship_to (Ship To)
   const sellerName = isB2B ? invoice.customer_name : co.name;
   const sellerAddress = isB2B ? customerAddress : companyAddress;
   const sellerPhone = isB2B ? invoice.customer_phone : co.phone;
@@ -102,11 +121,11 @@ export default function InvoicePrint({ invoice, companyOverride, printMode = 'no
           </p>
           {isB2B ? (
             <div className="bg-blue-50 rounded-lg p-3">
-              {shipToCustomer ? (
+              {resolvedBuyerName ? (
                 <>
-                  <p className="font-semibold text-neutral-900">{shipToCustomer.name}</p>
-                  {shipToCustomer.phone && <p className="text-xs text-neutral-600 mt-1">{shipToCustomer.phone}</p>}
-                  {shipToAddress && <p className="text-xs text-neutral-500 mt-0.5">{shipToAddress}</p>}
+                  <p className="font-semibold text-neutral-900">{resolvedBuyerName}</p>
+                  {resolvedBuyerPhone && <p className="text-xs text-neutral-600 mt-1">{resolvedBuyerPhone}</p>}
+                  {resolvedBuyerAddress && <p className="text-xs text-neutral-500 mt-0.5">{resolvedBuyerAddress}</p>}
                 </>
               ) : (
                 <p className="text-xs text-neutral-400 italic">Ship To not specified</p>
@@ -138,7 +157,7 @@ export default function InvoicePrint({ invoice, companyOverride, printMode = 'no
             </tr>
           </thead>
           <tbody>
-            {(invoice.items || []).map((item, idx) => (
+            {(b2bItems || []).map((item, idx) => (
               <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50'}>
                 <td className="px-3 py-2.5 text-xs text-neutral-500 border-b border-neutral-100">{idx + 1}</td>
                 <td className="px-3 py-2.5 border-b border-neutral-100">
@@ -148,7 +167,7 @@ export default function InvoicePrint({ invoice, companyOverride, printMode = 'no
                 <td className="px-3 py-2.5 text-xs text-center text-neutral-600 border-b border-neutral-100">{item.unit}</td>
                 <td className="px-3 py-2.5 text-xs text-right text-neutral-700 border-b border-neutral-100">{item.quantity}</td>
                 <td className="px-3 py-2.5 text-xs text-right text-neutral-700 border-b border-neutral-100">{formatCurrency(item.unit_price)}</td>
-                {invoice.items?.some(i => i.discount_pct > 0) && (
+                {!isB2B && invoice.items?.some(i => i.discount_pct > 0) && (
                   <td className="px-3 py-2.5 text-xs text-right text-neutral-500 border-b border-neutral-100">{item.discount_pct > 0 ? `${item.discount_pct}%` : '-'}</td>
                 )}
                 <td className="px-3 py-2.5 text-sm text-right font-medium text-neutral-900 border-b border-neutral-100">{formatCurrency(item.total_price)}</td>
@@ -160,19 +179,19 @@ export default function InvoicePrint({ invoice, companyOverride, printMode = 'no
 
       <div className="flex justify-end mb-5">
         <div className="w-64 space-y-1">
-          <div className="flex justify-between text-sm text-neutral-600"><span>Subtotal</span><span>{formatCurrency(invoice.subtotal)}</span></div>
-          {invoice.discount_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Discount</span><span>-{formatCurrency(invoice.discount_amount)}</span></div>}
-          {invoice.tax_amount > 0 && <div className="flex justify-between text-sm text-neutral-600"><span>Tax</span><span>{formatCurrency(invoice.tax_amount)}</span></div>}
+          <div className="flex justify-between text-sm text-neutral-600"><span>Subtotal</span><span>{formatCurrency(b2bSubtotal)}</span></div>
+          {!isB2B && invoice.discount_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Discount</span><span>-{formatCurrency(invoice.discount_amount)}</span></div>}
+          {!isB2B && invoice.tax_amount > 0 && <div className="flex justify-between text-sm text-neutral-600"><span>Tax</span><span>{formatCurrency(invoice.tax_amount)}</span></div>}
           {invoice.courier_charges > 0 && <div className="flex justify-between text-sm text-neutral-600"><span>Courier</span><span>{formatCurrency(invoice.courier_charges)}</span></div>}
-          <div className="flex justify-between text-base font-bold bg-primary-600 text-white px-3 py-2 rounded-lg mt-1"><span>Total Amount</span><span>{formatCurrency(invoice.total_amount)}</span></div>
-          {invoice.paid_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Paid</span><span>-{formatCurrency(invoice.paid_amount)}</span></div>}
-          {invoice.outstanding_amount > 0 && <div className="flex justify-between text-sm font-semibold text-error-600 border-t border-neutral-200 pt-1"><span>Balance Due</span><span>{formatCurrency(invoice.outstanding_amount)}</span></div>}
+          <div className="flex justify-between text-base font-bold bg-primary-600 text-white px-3 py-2 rounded-lg mt-1"><span>Total Amount</span><span>{formatCurrency(b2bTotal)}</span></div>
+          {!isB2B && invoice.paid_amount > 0 && <div className="flex justify-between text-sm text-success-600"><span>Paid</span><span>-{formatCurrency(invoice.paid_amount)}</span></div>}
+          {!isB2B && invoice.outstanding_amount > 0 && <div className="flex justify-between text-sm font-semibold text-error-600 border-t border-neutral-200 pt-1"><span>Balance Due</span><span>{formatCurrency(invoice.outstanding_amount)}</span></div>}
         </div>
       </div>
 
       <div className="bg-accent-50 border border-accent-200 rounded-lg px-4 py-2 mb-5">
         <p className="text-xs text-accent-700 font-medium">
-          <span className="font-bold">Amount in Words: </span>{numberToWords(invoice.total_amount)}
+          <span className="font-bold">Amount in Words: </span>{numberToWords(b2bTotal)}
         </p>
       </div>
 

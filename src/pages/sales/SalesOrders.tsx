@@ -57,6 +57,7 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
   const [linkedInfo, setLinkedInfo] = useState<{invoices: number; challans: number} | null>(null);
   const [printOrder, setPrintOrder] = useState<SalesOrder | null>(null);
   const [printItems, setPrintItems] = useState<SalesOrderItem[]>([]);
+  const [printMode, setPrintMode] = useState<'normal' | 'b2b'>('normal');
   const [printCompany, setPrintCompany] = useState<Company | undefined>(undefined);
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -520,11 +521,11 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
     setShowViewModal(true);
   };
 
-  const openSOPrint = async (order: SalesOrder) => {
+  const openSOPrint = async (order: SalesOrder, mode: 'normal' | 'b2b' = 'normal') => {
     const { data: itemsData } = await supabase.from('sales_order_items').select('*').eq('sales_order_id', order.id);
     setPrintOrder(order);
     setPrintItems((itemsData || []) as SalesOrderItem[]);
-    // detect company from first product
+    setPrintMode(mode);
     const firstProdId = (itemsData || []).find(i => i.product_id)?.product_id;
     if (firstProdId) {
       const { data: prod } = await supabase.from('products').select('company_id').eq('id', firstProdId).maybeSingle();
@@ -1064,8 +1065,13 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
           <div className="flex items-center gap-3">
             <button onClick={() => { setShowViewModal(false); setViewOrder(null); }} className="btn-secondary">Close</button>
             {viewOrder && (
-              <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder); }} className="btn-primary flex items-center gap-1.5">
+              <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'normal'); }} className="btn-primary flex items-center gap-1.5">
                 <Printer className="w-3.5 h-3.5" /> Print Proforma
+              </button>
+            )}
+            {viewOrder?.is_b2b && (
+              <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'b2b'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                <Printer className="w-3.5 h-3.5" /> Print Proforma (B2B)
               </button>
             )}
           </div>
@@ -1096,6 +1102,14 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
                   <p className="text-neutral-700">{viewOrder.customer_address}</p>
                 </div>
               )}
+              {viewOrder.is_b2b && viewOrder.ship_to_name && (
+                <div className="col-span-2 bg-blue-50 rounded-lg p-3">
+                  <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider mb-1">B2B — Ship To</p>
+                  <p className="font-semibold text-neutral-900 text-sm">{viewOrder.ship_to_name}</p>
+                  {viewOrder.ship_to_phone && <p className="text-xs text-neutral-600">{viewOrder.ship_to_phone}</p>}
+                  {viewOrder.ship_to_address1 && <p className="text-xs text-neutral-500">{[viewOrder.ship_to_address1, viewOrder.ship_to_address2, viewOrder.ship_to_city, viewOrder.ship_to_state, viewOrder.ship_to_pin].filter(Boolean).join(', ')}</p>}
+                </div>
+              )}
             </div>
 
             <div>
@@ -1107,7 +1121,7 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
                       <th className="table-header text-left">Product</th>
                       <th className="table-header text-right w-20">Qty</th>
                       <th className="table-header text-right w-24">Unit Price</th>
-                      <th className="table-header text-right w-16">Disc%</th>
+                      {viewOrder.is_b2b && <th className="table-header text-right w-24">B2B Price</th>}
                       <th className="table-header text-right w-24">Total</th>
                     </tr>
                   </thead>
@@ -1117,7 +1131,7 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
                         <td className="table-cell font-medium">{item.product_name}</td>
                         <td className="table-cell text-right">{item.quantity} {item.unit}</td>
                         <td className="table-cell text-right">{formatCurrency(item.unit_price)}</td>
-                        <td className="table-cell text-right">{item.discount_pct}%</td>
+                        {viewOrder.is_b2b && <td className="table-cell text-right text-blue-600">{(item as Record<string,unknown>).b2b_price != null ? formatCurrency((item as Record<string,unknown>).b2b_price as number) : '—'}</td>}
                         <td className="table-cell text-right font-semibold">{formatCurrency(item.total_price)}</td>
                       </tr>
                     ))}
@@ -1272,14 +1286,14 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
       {showPrint && printOrder && (
         <div className="fixed inset-0 z-50 bg-neutral-100 overflow-auto">
           <div className="no-print flex items-center justify-between bg-white border-b border-neutral-200 px-5 py-3">
-            <p className="text-sm font-semibold text-neutral-800">Proforma — {printOrder.so_number}</p>
+            <p className="text-sm font-semibold text-neutral-800">{printMode === 'b2b' ? 'B2B Proforma' : 'Proforma'} — {printOrder.so_number}</p>
             <div className="flex gap-2">
               <button onClick={() => window.print()} className="btn-primary"><Printer className="w-3.5 h-3.5" /> Print / Save PDF</button>
               <button onClick={() => setShowPrint(false)} className="btn-secondary">Close</button>
             </div>
           </div>
           <div className="py-6 print-content">
-            <SalesOrderPrint order={printOrder} items={printItems} companyOverride={printCompany} />
+            <SalesOrderPrint order={printOrder} items={printItems} companyOverride={printCompany} printMode={printMode} />
           </div>
         </div>
       )}

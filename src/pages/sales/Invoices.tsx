@@ -69,6 +69,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const [printCompany, setPrintCompany] = useState<Company | undefined>(undefined);
   const [printMode, setPrintMode] = useState<'normal' | 'b2b'>('normal');
   const [shipToCustomer, setShipToCustomer] = useState<Customer | undefined>(undefined);
+  const [b2bShipTo, setB2bShipTo] = useState<{ name: string; phone?: string; address?: string } | undefined>(undefined);
+  const [b2bPriceMap, setB2bPriceMap] = useState<Record<string, number>>({});
 
   const [form, setForm] = useState({
     customer_id: '', customer_name: '', customer_phone: '',
@@ -566,19 +568,36 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       setPrintCompany(undefined);
     }
 
+    setB2bShipTo(undefined);
+    setB2bPriceMap({});
+
     if (mode === 'b2b' && inv.sales_order_id) {
       const { data: so } = await supabase
         .from('sales_orders')
-        .select('ship_to_customer_id')
+        .select('ship_to_name, ship_to_phone, ship_to_address1, ship_to_address2, ship_to_city, ship_to_state, ship_to_pin, ship_to_customer_id')
         .eq('id', inv.sales_order_id)
         .maybeSingle();
-      if (so?.ship_to_customer_id) {
+
+      if (so?.ship_to_name) {
+        const addrParts = [so.ship_to_address1, so.ship_to_address2, so.ship_to_city, so.ship_to_state, so.ship_to_pin].filter(Boolean);
+        setB2bShipTo({ name: so.ship_to_name, phone: so.ship_to_phone || '', address: addrParts.join(', ') });
+      } else if (so?.ship_to_customer_id) {
         const { data: shipCust } = await supabase
           .from('customers')
           .select('id, name, phone, address, address2, city, state, pincode')
           .eq('id', so.ship_to_customer_id)
           .maybeSingle();
         setShipToCustomer(shipCust || undefined);
+      }
+
+      const { data: soItems } = await supabase
+        .from('sales_order_items')
+        .select('product_id, b2b_price')
+        .eq('sales_order_id', inv.sales_order_id);
+      if (soItems) {
+        const map: Record<string, number> = {};
+        soItems.forEach(si => { if (si.product_id && si.b2b_price != null) map[si.product_id] = si.b2b_price; });
+        setB2bPriceMap(map);
       }
     }
 
@@ -1394,6 +1413,8 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
               companyOverride={printCompany}
               printMode={printMode}
               shipToCustomer={shipToCustomer}
+              b2bShipTo={b2bShipTo}
+              b2bPriceMap={b2bPriceMap}
             />
           </div>
         </div>

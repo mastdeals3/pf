@@ -14,6 +14,7 @@ import ActionMenu, { actionEdit, actionDelete } from '../components/ui/ActionMen
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import StatusBadge from '../components/ui/StatusBadge';
 import { useDateRange } from '../contexts/DateRangeContext';
+import { createSalesOrder } from '../services/documentFlowService';
 import type {
   Customer, CrmNote, CrmFile, Appointment, TravelPlan, Invoice,
   SalesOrder, Payment, ProductRecommendation, Product, VastuPlan
@@ -468,33 +469,36 @@ export default function CRM() {
     if (!selectedCustomer || vastuPlans.length === 0) return;
     setConvertingSO(true);
     const soNumber = `SO-${Date.now().toString().slice(-6)}`;
-    const items = vastuPlans.map(vp => ({
-      product_id: vp.product_id || null,
-      product_name: `${vp.direction ? `[${vp.direction}] ` : ''}${vp.product_name}`,
-      unit: 'pcs',
-      quantity: vp.quantity,
-      unit_price: 0,
-      discount_pct: 0,
-      total_price: 0,
-    }));
-    const { data: soData } = await supabase.from('sales_orders').insert({
-      so_number: soNumber,
-      customer_id: selectedCustomer.id,
-      customer_name: selectedCustomer.name,
-      customer_phone: selectedCustomer.phone,
-      customer_address: selectedCustomer.address,
-      so_date: new Date().toISOString().split('T')[0],
-      status: 'draft',
-      subtotal: 0, tax_amount: 0, courier_charges: 0, discount_amount: 0, total_amount: 0,
-      notes: `Converted from Vastu Plan`,
-    }).select().single();
-    if (soData) {
-      const itemsWithSOId = items.map(item => ({ ...item, sales_order_id: soData.id }));
-      await supabase.from('sales_order_items').insert(itemsWithSOId);
+    const items = vastuPlans
+      .filter(vp => vp.product_id)
+      .map(vp => ({
+        product_id: vp.product_id as string,
+        product_name: `${vp.direction ? `[${vp.direction}] ` : ''}${vp.product_name}`,
+        unit: 'pcs',
+        quantity: vp.quantity,
+        unit_price: 0,
+        discount_pct: 0,
+      }));
+    if (items.length === 0) {
+      setConvertingSO(false);
+      return;
     }
-    setConvertingSO(false);
-    setShowConvertSOModal(false);
-    loadCustomerDetail(selectedCustomer);
+    try {
+      await createSalesOrder({
+        so_number: soNumber,
+        customer_id: selectedCustomer.id,
+        customer_name: selectedCustomer.name,
+        customer_phone: selectedCustomer.phone,
+        customer_address: selectedCustomer.address,
+        so_date: new Date().toISOString().split('T')[0],
+        notes: 'Converted from Vastu Plan',
+        items,
+      });
+    } finally {
+      setConvertingSO(false);
+      setShowConvertSOModal(false);
+      loadCustomerDetail(selectedCustomer);
+    }
   };
 
   const handleSaveCalAppt = async () => {

@@ -7,7 +7,7 @@ import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 import { useDateRange } from '../../contexts/DateRangeContext';
-import { processStockMovement } from '../../services/stockService';
+import { createSalesOrder, createDeliveryChallan } from '../../services/documentFlowService';
 import { getSmartRate } from '../../lib/rateCardService';
 import { fetchGodowns, getGodownStockForProduct } from '../../services/godownService';
 import { fetchCompanies } from '../../lib/companiesService';
@@ -198,55 +198,57 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
 
   const handleSave = async () => {
     const itemsWithProduct = items.filter(i => i.product_name && i.product_id);
+    if (itemsWithProduct.length === 0) {
+      alert('At least one product line is required.');
+      return;
+    }
     const missingGodown = itemsWithProduct.filter(i => !i.godown_id);
     if (missingGodown.length > 0) {
       alert(`Please select a godown for every product line. ${missingGodown.length} line(s) have no godown assigned.`);
       return;
     }
-    const soNumber = await nextDocNumber('SO', supabase);
-    const firstProdId = items.find(i => i.product_id)?.product_id;
-    const firstProd = firstProdId ? products.find(p => p.id === firstProdId) : null;
-    const soCompanyId = (firstProd as unknown as { company_id?: string })?.company_id || null;
-    const { data: so } = await supabase.from('sales_orders').insert({
-      so_number: soNumber,
-      customer_id: form.customer_id || null,
-      customer_name: form.customer_name,
-      customer_phone: form.customer_phone,
-      customer_address: form.customer_address,
-      customer_address2: form.customer_address2,
-      customer_city: form.customer_city,
-      customer_state: form.customer_state,
-      customer_pincode: form.customer_pincode,
-      so_date: form.so_date,
-      delivery_date: form.delivery_date || null,
-      status: 'confirmed',
-      subtotal,
-      tax_amount: 0,
-      courier_charges: parseFloat(form.courier_charges) || 0,
-      discount_amount: parseFloat(form.discount_amount) || 0,
-      total_amount: total,
-      notes: form.notes,
-      godown_id: form.godown_id || null,
-      company_id: soCompanyId,
-    }).select().single();
-
-    if (so) {
-      await supabase.from('sales_order_items').insert(
-        items.filter(i => i.product_name).map(i => ({
-          sales_order_id: so.id,
-          product_id: i.product_id || null,
+    if (!form.customer_id) {
+      alert('Please select a customer.');
+      return;
+    }
+    try {
+      const soNumber = await nextDocNumber('SO', supabase);
+      const firstProdId = itemsWithProduct[0].product_id;
+      const firstProd = products.find(p => p.id === firstProdId);
+      const soCompanyId = (firstProd as unknown as { company_id?: string })?.company_id || null;
+      await createSalesOrder({
+        so_number: soNumber,
+        customer_id: form.customer_id,
+        customer_name: form.customer_name,
+        customer_phone: form.customer_phone,
+        customer_address: form.customer_address,
+        customer_address2: form.customer_address2,
+        customer_city: form.customer_city,
+        customer_state: form.customer_state,
+        customer_pincode: form.customer_pincode,
+        so_date: form.so_date,
+        delivery_date: form.delivery_date || null,
+        courier_charges: parseFloat(form.courier_charges) || 0,
+        discount_amount: parseFloat(form.discount_amount) || 0,
+        notes: form.notes,
+        godown_id: form.godown_id || null,
+        company_id: soCompanyId,
+        items: itemsWithProduct.map(i => ({
+          product_id: i.product_id,
           product_name: i.product_name,
           unit: i.unit,
           quantity: parseFloat(i.quantity) || 0,
           unit_price: parseFloat(i.unit_price) || 0,
           discount_pct: parseFloat(i.discount_pct) || 0,
-          total_price: i.total_price,
           godown_id: i.godown_id || null,
-        }))
-      );
+        })),
+      });
+      setShowModal(false);
+      loadData();
+    } catch (err) {
+      console.error('Failed to create sales order:', err);
+      alert((err as Error).message || 'Failed to create sales order');
     }
-    setShowModal(false);
-    loadData();
   };
 
   const handleEdit = async () => {
@@ -431,136 +433,18 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
     );
   };
 
-  const createInvoiceFromSO = async (order: SalesOrder) => {
-    setConverting(order.id);
-    try {
-      let soItems = rowItems[order.id];
-      if (!soItems) {
-        const { data } = await supabase.from('sales_order_items').select('*').eq('sales_order_id', order.id);
-        soItems = data || [];
-        setRowItems(prev => ({ ...prev, [order.id]: soItems }));
-      }
-
-      const { data: inv } = await supabase.from('invoices').insert({
-        invoice_number: await nextDocNumber('INV', supabase),
-        sales_order_id: order.id,
-        customer_id: order.customer_id || null,
-        customer_name: order.customer_name,
-        customer_phone: order.customer_phone,
-        customer_address: order.customer_address,
-        invoice_date: new Date().toISOString().split('T')[0],
-        status: 'sent',
-        subtotal: order.subtotal,
-        tax_amount: order.tax_amount,
-        courier_charges: order.courier_charges,
-        discount_amount: order.discount_amount,
-        total_amount: order.total_amount,
-        paid_amount: 0,
-        outstanding_amount: order.total_amount,
-        payment_terms: 'Due on receipt',
-      }).select().single();
-
-      if (inv) {
-        await supabase.from('invoice_items').insert(
-          soItems.map(i => ({
-            invoice_id: inv.id,
-            product_id: i.product_id || null,
-            product_name: i.product_name,
-            unit: i.unit,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            discount_pct: i.discount_pct,
-            tax_pct: 0,
-            total_price: i.total_price,
-          }))
-        );
-
-        const missing = soItems.filter(it => it.product_id && !((it as any).godown_id || order.godown_id));
-        if (missing.length > 0) {
-          throw new Error(
-            `Cannot create invoice: godown is missing on ${missing.length} line(s). ` +
-            `Edit the Sales Order and assign a godown to every product before converting.`
-          );
-        }
-
-        const dispatchItems = soItems
-          .filter(item => item.product_id)
-          .map(item => {
-            const godownId = (item as any).godown_id || order.godown_id;
-            return godownId
-              ? { product_id: item.product_id!, godown_id: godownId as string, quantity: item.quantity }
-              : null;
-          })
-          .filter((i): i is { product_id: string; godown_id: string; quantity: number } => i !== null && i.quantity > 0);
-
-        if (dispatchItems.length > 0) {
-          await processStockMovement({
-            type: 'dispatch',
-            items: dispatchItems,
-            reference_type: 'invoice',
-            reference_id: inv.id,
-            reference_number: inv.invoice_number,
-            notes: `Invoice ${inv.invoice_number} for ${order.customer_name}`,
-          });
-        }
-
-        if (order.customer_id) {
-          const { data: cust } = await supabase.from('customers').select('balance, total_revenue').eq('id', order.customer_id).maybeSingle();
-          if (cust) {
-            await supabase.from('customers').update({
-              balance: (cust.balance || 0) + order.total_amount,
-              total_revenue: (cust.total_revenue || 0) + order.total_amount,
-              last_interaction: new Date().toISOString(),
-            }).eq('id', order.customer_id);
-          }
-        }
-
-        await supabase.from('sales_orders').update({ status: 'invoiced' }).eq('id', order.id);
-        onNavigate('invoices');
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to convert Sales Order to Invoice');
-    } finally {
-      setConverting(null);
-    }
-  };
-
   const createChallanFromSO = async (order: SalesOrder) => {
     setConverting(order.id);
     try {
-      let soItems = rowItems[order.id];
-      if (!soItems) {
-        const { data } = await supabase.from('sales_order_items').select('*').eq('sales_order_id', order.id);
-        soItems = data || [];
-        setRowItems(prev => ({ ...prev, [order.id]: soItems }));
-      }
-
-      const { data: dc } = await supabase.from('delivery_challans').insert({
-        challan_number: await nextDocNumber('DC', supabase),
-        sales_order_id: order.id,
-        customer_id: order.customer_id || null,
-        customer_name: order.customer_name,
-        customer_phone: order.customer_phone,
-        customer_address: order.customer_address,
+      const challanNumber = await nextDocNumber('DC', supabase);
+      await createDeliveryChallan(order.id, {
+        challan_number: challanNumber,
         challan_date: new Date().toISOString().split('T')[0],
         dispatch_mode: 'Courier',
-        status: 'dispatched',
-      }).select().single();
-
-      if (dc) {
-        await supabase.from('delivery_challan_items').insert(
-          soItems.map(i => ({
-            delivery_challan_id: dc.id,
-            product_id: i.product_id || null,
-            product_name: i.product_name,
-            unit: i.unit,
-            quantity: i.quantity,
-          }))
-        );
-
-        await supabase.from('sales_orders').update({ status: 'dispatched' }).eq('id', order.id);
-        onNavigate('challans');
-      }
+      });
+      onNavigate('challans');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to convert Sales Order to Delivery Challan');
     } finally {
       setConverting(null);
     }

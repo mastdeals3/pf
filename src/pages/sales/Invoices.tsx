@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Eye, CheckCircle, XCircle, X, ChevronDown, Truck, AlertCircle } from 'lucide-react';
+import { Plus, Search, CreditCard, FileText, Download, Printer, Pencil, Eye, CheckCircle, XCircle, X, ChevronDown, Truck } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, formatDate, formatDateInput, generateId, nextDocNumber, exportToCSV } from '../../lib/utils';
 import Modal from '../../components/ui/Modal';
@@ -8,16 +8,17 @@ import EmptyState from '../../components/ui/EmptyState';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InvoicePrint from './InvoicePrint';
 import { useDateRange } from '../../contexts/DateRangeContext';
-import { getSmartRate, updateLastRate } from '../../lib/rateCardService';
-import { fetchCompanies, getCompanyById } from '../../lib/companiesService';
+import { getSmartRate } from '../../lib/rateCardService';
+import { getCompanyById } from '../../lib/companiesService';
 import type { Company } from '../../lib/companiesService';
 import { fetchGodowns } from '../../services/godownService';
-import { processStockMovement } from '../../services/stockService';
+import { createInvoice } from '../../services/documentFlowService';
 import type { Invoice, Product, Customer, SalesOrder, DeliveryChallan, Godown } from '../../types';
 import type { ActivePage } from '../../types';
 import type { PageState } from '../../App';
 
 interface LineItem {
+  id?: string; // delivery_challan_items.id when prefilled from DC — used to key item_tax
   product_id: string;
   product_name: string;
   description: string;
@@ -61,15 +62,11 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [godowns, setGodowns] = useState<Godown[]>([]);
   const [godownStockMap, setGodownStockMap] = useState<Record<string, number>>({});
-  const [availableSOs, setAvailableSOs] = useState<SalesOrder[]>([]);
   const [availableDCs, setAvailableDCs] = useState<DeliveryChallan[]>([]);
   const [soSearch, setSoSearch] = useState('');
   const [selectedSO, setSelectedSO] = useState<SalesOrder | null>(null);
-  const [selectedSOId, setSelectedSOId] = useState('');
-  const [selectMode, setSelectMode] = useState<'so' | 'dc'>('dc');
   const printRef = useRef<HTMLDivElement>(null);
   const [printCompany, setPrintCompany] = useState<Company | undefined>(undefined);
-  const [splitSummary, setSplitSummary] = useState<{invoiceNumber: string; companyName: string; total: number}[] | null>(null);
 
   const [form, setForm] = useState({
     customer_id: '', customer_name: '', customer_phone: '',
@@ -139,9 +136,9 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
           product_name: i.product_name,
           unit: i.unit,
           quantity: i.quantity,
-          unit_price: 0,
-          discount_pct: 0,
-          total_price: 0,
+          unit_price: i.unit_price || 0,
+          discount_pct: i.discount_pct || 0,
+          total_price: i.total_price || 0,
         }));
       }
 
@@ -169,6 +166,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       if (so) setSelectedSO(so);
 
       setItems(soItems.map(item => ({
+        id: (item as { id?: string }).id,
         product_id: item.product_id || '',
         product_name: item.product_name,
         description: '',
@@ -239,24 +237,13 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     setGodownStockMap(map);
   };
 
-  const loadAvailableSOs = async () => {
-    const [invoicedSORes, invoicedDCRes] = await Promise.all([
-      supabase.from('invoices').select('sales_order_id').not('sales_order_id', 'is', null).neq('status', 'cancelled'),
-      supabase.from('invoices').select('delivery_challan_id').not('delivery_challan_id', 'is', null).neq('status', 'cancelled'),
-    ]);
+  const loadAvailableDCs = async () => {
+    const { data: invoicedDCRes } = await supabase
+      .from('invoices').select('delivery_challan_id')
+      .not('delivery_challan_id', 'is', null).neq('status', 'cancelled');
 
-    const usedSOIds = (invoicedSORes.data || []).map((r: { sales_order_id: string }) => r.sales_order_id).filter(Boolean);
-    const usedDCIds = (invoicedDCRes.data || []).map((r: { delivery_challan_id: string }) => r.delivery_challan_id).filter(Boolean);
-
-    let soQuery = supabase
-      .from('sales_orders')
-      .select('*, items:sales_order_items(*)')
-      .in('status', ['confirmed', 'dispatched', 'delivered'])
-      .order('created_at', { ascending: false });
-
-    if (usedSOIds.length > 0) {
-      soQuery = soQuery.not('id', 'in', `(${usedSOIds.join(',')})`);
-    }
+    const usedDCIds = (invoicedDCRes || [])
+      .map((r: { delivery_challan_id: string }) => r.delivery_challan_id).filter(Boolean);
 
     let dcQuery = supabase
       .from('delivery_challans')
@@ -268,17 +255,14 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
       dcQuery = dcQuery.not('id', 'in', `(${usedDCIds.join(',')})`);
     }
 
-    const [soRes, dcRes] = await Promise.all([soQuery, dcQuery]);
-    setAvailableSOs(soRes.data || []);
-    setAvailableDCs((dcRes.data || []) as DeliveryChallan[]);
+    const { data: dcRes } = await dcQuery;
+    setAvailableDCs((dcRes || []) as DeliveryChallan[]);
   };
 
   const openSOSelectModal = async () => {
-    await loadAvailableSOs();
+    await loadAvailableDCs();
     setSoSearch('');
-    setSelectedSOId('');
     setSelectedSO(null);
-    setSelectMode('dc');
     setShowSOSelectModal(true);
   };
 
@@ -312,6 +296,7 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
     });
     setItems(
       (dcItems || []).map(i => ({
+        id: i.id,
         product_id: i.product_id || '',
         product_name: i.product_name,
         description: '',
@@ -323,64 +308,6 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         total_price: i.total_price || 0,
       }))
     );
-    setShowSOSelectModal(false);
-    setShowModal(true);
-  };
-
-  const handleSOSelect = (soId: string) => {
-    setSelectedSOId(soId);
-    const so = availableSOs.find(s => s.id === soId) || null;
-    setSelectedSO(so);
-  };
-
-  const handleProceedWithSO = async () => {
-    if (!selectedSO) return;
-
-    let soItems: SalesOrder['items'] = selectedSO.items;
-    if (!soItems || soItems.length === 0) {
-      const { data: itemsData } = await supabase
-        .from('sales_order_items')
-        .select('*')
-        .eq('sales_order_id', selectedSO.id);
-      soItems = itemsData || [];
-    }
-
-    const soCustomer = customers.find(c => c.id === selectedSO.customer_id);
-    setForm({
-      customer_id: selectedSO.customer_id || '',
-      customer_name: selectedSO.customer_name,
-      customer_phone: selectedSO.customer_phone || soCustomer?.phone || '',
-      customer_address: selectedSO.customer_address || soCustomer?.address || '',
-      customer_address2: selectedSO.customer_address2 || soCustomer?.address2 || '',
-      customer_city: selectedSO.customer_city || soCustomer?.city || '',
-      customer_state: selectedSO.customer_state || soCustomer?.state || '',
-      customer_pincode: selectedSO.customer_pincode || soCustomer?.pincode || '',
-      invoice_date: new Date().toISOString().split('T')[0],
-      due_date: '',
-      courier_charges: String(selectedSO.courier_charges || 0),
-      discount_amount: String(selectedSO.discount_amount || 0),
-      payment_terms: 'Due on receipt',
-      notes: selectedSO.notes || '',
-      bank_name: '',
-      account_number: '',
-      ifsc_code: '',
-      sales_order_id: selectedSO.id,
-    });
-
-    setItems(
-      (soItems || []).map(item => ({
-        product_id: item.product_id || '',
-        product_name: item.product_name,
-        description: '',
-        unit: item.unit,
-        quantity: String(item.quantity),
-        unit_price: String(item.unit_price),
-        discount_pct: String(item.discount_pct || 0),
-        tax_pct: '0',
-        total_price: item.total_price,
-      }))
-    );
-
     setShowSOSelectModal(false);
     setShowModal(true);
   };
@@ -471,189 +398,43 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   }, 0);
   const editTotal = editSubtotal + (parseFloat(editForm.courier_charges) || 0) - (parseFloat(editForm.discount_amount) || 0);
 
-  // Helper: create one invoice for a subset of items + a specific company
-  const createOneInvoice = async (
-    invItems: typeof items,
-    companyId: string | null,
-    invSubtotal: number,
-    invTax: number,
-    invCourier: number,
-    invDiscount: number,
-    invTotal: number,
-  ) => {
-    const invNumber = await nextDocNumber('INV', supabase);
-    const { data: inv } = await supabase.from('invoices').insert({
-      invoice_number: invNumber,
-      sales_order_id: form.sales_order_id || null,
-      delivery_challan_id: form.delivery_challan_id || null,
-      customer_id: form.customer_id || null,
-      customer_name: form.customer_name,
-      customer_phone: form.customer_phone,
-      customer_address: form.customer_address,
-      customer_address2: form.customer_address2,
-      customer_city: form.customer_city,
-      customer_state: form.customer_state,
-      customer_pincode: form.customer_pincode,
-      invoice_date: form.invoice_date,
-      due_date: form.due_date || null,
-      status: 'sent',
-      subtotal: invSubtotal,
-      tax_amount: invTax,
-      courier_charges: invCourier,
-      discount_amount: invDiscount,
-      total_amount: invTotal,
-      paid_amount: 0,
-      outstanding_amount: invTotal,
-      payment_terms: form.payment_terms,
-      notes: form.notes,
-      bank_name: form.bank_name,
-      account_number: form.account_number,
-      ifsc_code: form.ifsc_code,
-      company_id: companyId,
-    }).select().single();
-
-    if (!inv) return null;
-
-    await supabase.from('invoice_items').insert(
-      invItems.map(i => ({
-        invoice_id: inv.id,
-        product_id: i.product_id || null,
-        product_name: i.product_name,
-        description: i.description,
-        unit: i.unit,
-        quantity: parseFloat(i.quantity) || 0,
-        unit_price: parseFloat(i.unit_price) || 0,
-        discount_pct: parseFloat(i.discount_pct) || 0,
-        tax_pct: parseFloat(i.tax_pct) || 0,
-        total_price: i.total_price,
-        godown_id: i.godown_id || null,
-      }))
-    );
-
-    const dispatchItems = invItems
-      .filter(item => item.product_id && item.godown_id)
-      .map(item => ({
-        product_id: item.product_id,
-        godown_id: item.godown_id as string,
-        quantity: parseFloat(item.quantity) || 0,
-        unit_price: parseFloat(item.unit_price) || 0,
-      }))
-      .filter(i => i.quantity > 0);
-
-    if (dispatchItems.length > 0) {
-      await processStockMovement({
-        type: 'dispatch',
-        items: dispatchItems,
-        reference_type: 'invoice',
-        reference_id: inv.id,
-        reference_number: invNumber,
-        notes: 'Invoice ' + invNumber,
-      });
-    }
-
-    if (form.customer_id) {
-      for (const item of invItems) {
-        if (!item.product_id) continue;
-        const rate = parseFloat(item.unit_price) || 0;
-        if (rate > 0) await updateLastRate(form.customer_id, item.product_id, rate, 'invoice', inv.id);
-      }
-    }
-
-    await supabase.from('ledger_entries').insert({
-      entry_date: form.invoice_date, entry_type: 'debit', account_type: 'customer',
-      party_id: form.customer_id || null, party_name: form.customer_name,
-      reference_type: 'invoice', reference_id: inv.id,
-      description: 'Invoice ' + invNumber, amount: invTotal,
-    });
-
-    return { invNumber, invTotal, inv };
-  };
-
   const handleSave = async () => {
-    const validItems = items.filter(i => i.product_name);
-
-    const itemsWithProduct = validItems.filter(i => i.product_id);
-    const missingGodown = itemsWithProduct.filter(i => !i.godown_id);
-    if (missingGodown.length > 0) {
-      alert(`Please select a godown for every product line. ${missingGodown.length} line(s) have no godown assigned.`);
+    if (!form.delivery_challan_id) {
+      alert('An invoice must be created from a Delivery Challan. Please pick a DC.');
       return;
     }
 
-    // --- SPLIT DETECTION ---
-    // Fetch company_id for each product so we can group by entity
-    const productCompanyMap: Record<string, string | null> = {};
-    const productIds = [...new Set(validItems.map(i => i.product_id).filter(Boolean))];
-    if (productIds.length > 0) {
-      const { data: prods } = await supabase.from('products').select('id, company_id').in('id', productIds);
-      (prods || []).forEach(p => { productCompanyMap[p.id] = p.company_id || null; });
-    }
-
-    // Group items by company
-    const groups = new Map<string | null, typeof items>();
-    for (const item of validItems) {
-      const companyId = item.product_id ? (productCompanyMap[item.product_id] ?? null) : null;
-      const key = companyId ?? '__none__';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(item);
-    }
-
-    const realGroups = [...groups.entries()].map(([key, grpItems]) => ({
-      companyId: key === '__none__' ? null : key,
-      items: grpItems,
-    }));
-
-    const courier = parseFloat(form.courier_charges) || 0;
-    const discount = parseFloat(form.discount_amount) || 0;
-    const numGroups = realGroups.length;
-
-    const summaries: {invoiceNumber: string; companyName: string; total: number}[] = [];
-
-    // Fetch company names for summary
-    const allCompanies = await fetchCompanies();
-
-    for (let g = 0; g < realGroups.length; g++) {
-      const { companyId, items: grpItems } = realGroups[g];
-      const grpSubtotal = grpItems.reduce((s, i) => s + i.total_price, 0);
-      const grpTax = grpItems.reduce((s, i) => {
-        const qty = parseFloat(i.quantity) || 0;
-        const price = parseFloat(i.unit_price) || 0;
-        const disc = parseFloat(i.discount_pct) || 0;
-        const tax = parseFloat(i.tax_pct) || 0;
-        return s + (qty * price * (1 - disc / 100) * (tax / 100));
-      }, 0);
-      // Split courier & discount proportionally across groups
-      const fraction = numGroups > 1 ? grpSubtotal / (subtotal || 1) : 1;
-      const grpCourier = numGroups > 1 ? Math.round(courier * fraction) : courier;
-      const grpDiscount = numGroups > 1 ? Math.round(discount * fraction) : discount;
-      const grpTotal = grpSubtotal + grpTax + grpCourier - grpDiscount;
-
-      const result = await createOneInvoice(grpItems, companyId, grpSubtotal, grpTax, grpCourier, grpDiscount, grpTotal);
-      if (result) {
-        const co = allCompanies.find(c => c.id === companyId);
-        summaries.push({ invoiceNumber: result.invNumber, companyName: co?.name || 'Default', total: grpTotal });
+    // Build item_tax map keyed by DC item id. `items[i].id` was populated
+    // when the DC items were loaded in the prefill/select flow.
+    const itemTax: Record<string, number> = {};
+    for (const it of items as (LineItem & { id?: string })[]) {
+      if (it.id) {
+        const t = parseFloat(it.tax_pct) || 0;
+        if (t > 0) itemTax[it.id] = t;
       }
     }
 
-    // Update customer balance once for total
-    if (form.customer_id) {
-      const { data: cust } = await supabase.from('customers').select('balance, total_revenue').eq('id', form.customer_id).maybeSingle();
-      if (cust) {
-        const grandTotal = summaries.reduce((s, x) => s + x.total, 0);
-        await supabase.from('customers').update({
-          balance: (cust.balance || 0) + grandTotal,
-          total_revenue: (cust.total_revenue || 0) + grandTotal,
-          last_interaction: new Date().toISOString(),
-        }).eq('id', form.customer_id);
-      }
+    try {
+      const invoiceNumber = await nextDocNumber('INV', supabase);
+      await createInvoice(form.delivery_challan_id, {
+        invoice_number: invoiceNumber,
+        invoice_date: form.invoice_date,
+        due_date: form.due_date || null,
+        payment_terms: form.payment_terms,
+        notes: form.notes,
+        bank_name: form.bank_name,
+        account_number: form.account_number,
+        ifsc_code: form.ifsc_code,
+        courier_charges: parseFloat(form.courier_charges) || 0,
+        discount_amount: parseFloat(form.discount_amount) || 0,
+        item_tax: itemTax,
+      });
+      setShowModal(false);
+      loadData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create invoice.';
+      alert(`Invoice creation failed: ${msg}`);
     }
-    if (form.sales_order_id) {
-      await supabase.from('sales_orders').update({ status: 'dispatched' }).eq('id', form.sales_order_id);
-    }
-
-    setShowModal(false);
-    loadData();
-    // Show split summary if multiple invoices were created
-    if (summaries.length > 1) setSplitSummary(summaries);
   };
 
   const openView = async (inv: Invoice) => {
@@ -712,10 +493,9 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const handleEditSave = async () => {
     if (!selectedInvoice) return;
 
-    const { data: oldItemsData } = await supabase
-      .from('invoice_items').select('product_id, quantity, godown_id').eq('invoice_id', selectedInvoice.id);
-    const oldItems = oldItemsData || [];
-
+    // Invoices no longer own stock — the Delivery Challan does.
+    // Editing an invoice only updates header fields and item pricing/tax.
+    // Quantity/godown changes here do NOT move stock.
     await supabase.from('invoices').update({
       invoice_date: editForm.invoice_date,
       due_date: editForm.due_date || null,
@@ -747,37 +527,6 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         total_price: i.total_price,
       }))
     );
-
-    const oldQtyByProduct: Record<string, { qty: number; godown_id: string | null }> = {};
-    for (const item of oldItems) {
-      if (!item.product_id) continue;
-      if (!oldQtyByProduct[item.product_id]) oldQtyByProduct[item.product_id] = { qty: 0, godown_id: item.godown_id || null };
-      oldQtyByProduct[item.product_id].qty += item.quantity;
-    }
-    const newQtyByProduct: Record<string, { qty: number; godown_id: string | null }> = {};
-    for (const item of editItems.filter(i => i.product_id)) {
-      const pid = item.product_id!;
-      if (!newQtyByProduct[pid]) newQtyByProduct[pid] = { qty: 0, godown_id: item.godown_id || null };
-      newQtyByProduct[pid].qty += parseFloat(item.quantity) || 0;
-    }
-
-    const allProductIds = new Set([...Object.keys(oldQtyByProduct), ...Object.keys(newQtyByProduct)]);
-    for (const pid of allProductIds) {
-      const oldEntry = oldQtyByProduct[pid] || { qty: 0, godown_id: null };
-      const newEntry = newQtyByProduct[pid] || { qty: 0, godown_id: null };
-      const diff = newEntry.qty - oldEntry.qty;
-      if (diff === 0) continue;
-
-      const godownId = newEntry.godown_id || oldEntry.godown_id;
-      if (godownId) {
-        await processStockMovement({
-          type: 'adjustment',
-          items: [{ product_id: pid, godown_id: godownId, quantity: -diff }],
-          reference_type: 'invoice_edit',
-          notes: 'Invoice edit diff',
-        });
-      }
-    }
 
     setShowEditModal(false);
     loadData();
@@ -944,11 +693,6 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
   const paidThisMonth = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.total_amount, 0);
 
   const STATUSES = ['All', 'Draft', 'Pending', 'Overdue', 'Partial', 'Paid'];
-
-  const filteredSOs = availableSOs.filter(so =>
-    so.customer_name.toLowerCase().includes(soSearch.toLowerCase()) ||
-    so.so_number.toLowerCase().includes(soSearch.toLowerCase())
-  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-neutral-50">
@@ -1163,96 +907,49 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
 
       <Modal isOpen={showSOSelectModal} onClose={() => setShowSOSelectModal(false)} title="New Invoice" size="lg"
         footer={
-          <>
-            <button onClick={() => setShowSOSelectModal(false)} className="btn-secondary">Cancel</button>
-            {selectMode === 'so' && <button onClick={handleProceedWithSO} disabled={!selectedSOId} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">Continue to Invoice</button>}
-          </>
+          <button onClick={() => setShowSOSelectModal(false)} className="btn-secondary">Cancel</button>
         }>
         <div className="space-y-3">
           <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-100 rounded-lg">
             <Truck className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-            <p className="text-xs text-orange-700 font-medium">Recommended: create a Delivery Note first, then invoice from it.</p>
-          </div>
-          <div className="flex gap-1 border-b border-neutral-100 pb-0">
-            <button onClick={() => setSelectMode('dc')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'dc' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
-              <Truck className="w-3 h-3" /> From Delivery Note
-              {selectMode === 'dc' && <span className="ml-1 bg-primary-100 text-primary-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">RECOMMENDED</span>}
-            </button>
-            <button onClick={() => setSelectMode('so')} className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${selectMode === 'so' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'}`}>
-              <FileText className="w-3 h-3" /> From Sales Order
-            </button>
+            <p className="text-xs text-orange-700 font-medium">Invoices must be created from a Delivery Note.</p>
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
             <input
               value={soSearch}
               onChange={e => setSoSearch(e.target.value)}
-              placeholder={selectMode === 'dc' ? 'Search delivery note or customer...' : 'Search SO number or customer...'}
+              placeholder="Search delivery note or customer..."
               className="input pl-8 w-full text-xs"
             />
           </div>
-          {selectMode === 'dc' ? (
-            availableDCs.filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase())).length === 0 ? (
-              <div className="text-center py-8 space-y-2">
-                <Truck className="w-8 h-8 text-neutral-200 mx-auto" />
-                <p className="text-sm font-medium text-neutral-500">No uninvoiced delivery notes found.</p>
-                <p className="text-xs text-neutral-400">Go to <span className="font-semibold text-orange-600">Delivery Notes</span> and create one first, then invoice from it.</p>
-              </div>
-            ) : (
-              <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-                {availableDCs
-                  .filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase()))
-                  .map(dc => (
-                    <div key={dc.id} onClick={() => handleDCSelect(dc)}
-                      className="flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-primary-50 transition-colors group">
-                      <div>
-                        <p className="text-sm font-semibold text-primary-700">{dc.challan_number}</p>
-                        <p className="text-xs text-neutral-500">{dc.customer_name}</p>
-                        {dc.sales_order_id && soMap[dc.sales_order_id] && (
-                          <p className="text-[10px] text-blue-600 mt-0.5">SO: {soMap[dc.sales_order_id]}</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <StatusBadge status={dc.status} />
-                        <p className="text-xs text-neutral-400 mt-1">{formatDate(dc.challan_date)}</p>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )
+          {availableDCs.filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase())).length === 0 ? (
+            <div className="text-center py-8 space-y-2">
+              <Truck className="w-8 h-8 text-neutral-200 mx-auto" />
+              <p className="text-sm font-medium text-neutral-500">No uninvoiced delivery notes found.</p>
+              <p className="text-xs text-neutral-400">Go to <span className="font-semibold text-orange-600">Delivery Notes</span> and create one first, then invoice from it.</p>
+            </div>
           ) : (
-            <>
-              <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg">
-                <AlertCircle className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                <p className="text-xs text-neutral-500">Invoicing directly from SO skips the Delivery Note step.</p>
-              </div>
-              {filteredSOs.length === 0 ? (
-                <div className="text-center py-8 text-neutral-400 text-sm">
-                  No eligible Sales Orders found.
-                </div>
-              ) : (
-                <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                  {filteredSOs.map(so => (
-                    <div key={so.id} onClick={() => handleSOSelect(so.id)}
-                      className={`flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 transition-colors ${selectedSOId === so.id ? 'bg-primary-50 border-primary-100' : 'hover:bg-neutral-50'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedSOId === so.id ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
-                          {selectedSOId === so.id && <div className="w-2 h-2 rounded-full bg-white" />}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-primary-700">{so.so_number}</p>
-                          <p className="text-xs text-neutral-500">{so.customer_name}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold">{formatCurrency(so.total_amount)}</p>
-                        <p className="text-xs text-neutral-400">{formatDate(so.so_date)} &middot; <StatusBadge status={so.status} /></p>
-                      </div>
+            <div className="border border-neutral-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+              {availableDCs
+                .filter(dc => !soSearch || dc.challan_number.toLowerCase().includes(soSearch.toLowerCase()) || dc.customer_name.toLowerCase().includes(soSearch.toLowerCase()))
+                .map(dc => (
+                  <div key={dc.id} onClick={() => handleDCSelect(dc)}
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-primary-50 transition-colors group">
+                    <div>
+                      <p className="text-sm font-semibold text-primary-700">{dc.challan_number}</p>
+                      <p className="text-xs text-neutral-500">{dc.customer_name}</p>
+                      {dc.sales_order_id && soMap[dc.sales_order_id] && (
+                        <p className="text-[10px] text-blue-600 mt-0.5">SO: {soMap[dc.sales_order_id]}</p>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </>
+                    <div className="text-right">
+                      <StatusBadge status={dc.status} />
+                      <p className="text-xs text-neutral-400 mt-1">{formatDate(dc.challan_date)}</p>
+                    </div>
+                  </div>
+                ))}
+            </div>
           )}
         </div>
       </Modal>
@@ -1783,36 +1480,6 @@ export default function Invoices({ onNavigate: _onNavigate, prefillFromDC }: Inv
         isDanger
         suppressAutoClose
       />
-
-    {/* Split invoice summary */}
-      {splitSummary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSplitSummary(null)} />
-          <div className="relative bg-white rounded-xl shadow-card-lg w-full max-w-sm p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-9 h-9 bg-success-50 rounded-full flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-success-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-neutral-900">{splitSummary.length} Invoices Created</p>
-                <p className="text-xs text-neutral-500">Products belonged to different billing entities</p>
-              </div>
-            </div>
-            <div className="space-y-2 mb-4">
-              {splitSummary.map(s => (
-                <div key={s.invoiceNumber} className="flex items-center justify-between bg-neutral-50 rounded-lg px-3 py-2.5">
-                  <div>
-                    <p className="text-xs font-bold text-primary-700">{s.invoiceNumber}</p>
-                    <p className="text-[11px] text-neutral-500">{s.companyName}</p>
-                  </div>
-                  <p className="text-sm font-bold text-neutral-800">{formatCurrency(s.total)}</p>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => setSplitSummary(null)} className="btn-primary w-full justify-center text-xs">Done</button>
-          </div>
-        </div>
-      )}
 
     </div>
   );

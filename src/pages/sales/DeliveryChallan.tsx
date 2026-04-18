@@ -10,6 +10,7 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import ChallanPrint from './ChallanPrint';
 import { fetchCompanies } from '../../lib/companiesService';
 import type { Company } from '../../lib/companiesService';
+import { createDeliveryChallan } from '../../services/documentFlowService';
 import type { DeliveryChallan as DCType, Product, Customer, SalesOrder, SalesOrderItem } from '../../types';
 import type { ActivePage } from '../../types';
 import type { PageState } from '../../App';
@@ -196,49 +197,26 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
   const subtotal = items.reduce((s, i) => s + i.total_price, 0);
 
   const handleSave = async () => {
-    const challanNumber = await nextDocNumber('DC', supabase);
-    const firstProdId = items.find(i => i.product_id)?.product_id;
-    const firstProd = firstProdId ? products.find(p => p.id === firstProdId) : null;
-    const dcCompanyId = (firstProd as unknown as { company_id?: string })?.company_id || null;
-    const { data: challan } = await supabase.from('delivery_challans').insert({
-      challan_number: challanNumber,
-      sales_order_id: form.sales_order_id || null,
-      customer_id: form.customer_id || null,
-      customer_name: form.customer_name,
-      customer_phone: form.customer_phone,
-      customer_address: form.customer_address,
-      customer_address2: form.customer_address2,
-      customer_city: form.customer_city,
-      customer_state: form.customer_state,
-      customer_pincode: form.customer_pincode,
-      challan_date: form.challan_date,
-      dispatch_mode: form.dispatch_mode,
-      courier_company: form.courier_company,
-      tracking_number: form.tracking_number,
-      status: 'dispatched', notes: form.notes,
-      company_id: dcCompanyId,
-    }).select().single();
-
-    if (challan) {
-      await supabase.from('delivery_challan_items').insert(
-        items.filter(i => i.product_name).map(i => ({
-          delivery_challan_id: challan.id,
-          product_id: i.product_id || null,
-          product_name: i.product_name,
-          unit: i.unit,
-          quantity: parseFloat(i.quantity) || 0,
-          unit_price: parseFloat(i.unit_price) || 0,
-          discount_pct: parseFloat(i.discount_pct) || 0,
-          total_price: i.total_price,
-          godown_id: i.godown_id || null,
-        }))
-      );
-      if (form.sales_order_id) {
-        await supabase.from('sales_orders').update({ status: 'dispatched' }).eq('id', form.sales_order_id);
-      }
+    if (!form.sales_order_id) {
+      alert('A Sales Order is required to create a Delivery Challan.');
+      return;
     }
-    setShowModal(false);
-    loadData();
+    try {
+      const challanNumber = await nextDocNumber('DC', supabase);
+      await createDeliveryChallan(form.sales_order_id, {
+        challan_number: challanNumber,
+        challan_date: form.challan_date,
+        dispatch_mode: form.dispatch_mode,
+        courier_company: form.courier_company,
+        tracking_number: form.tracking_number,
+        notes: form.notes,
+      });
+      setShowModal(false);
+      loadData();
+    } catch (err) {
+      console.error('Failed to create delivery challan:', err);
+      alert((err as Error).message || 'Failed to create delivery challan');
+    }
   };
 
   const handleEdit = async () => {
@@ -295,14 +273,6 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     setForm(emptyForm);
     setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0, godown_id: '' }]);
     await handleSOChange(soId);
-    setShowModal(true);
-  };
-
-  const handleNewWithoutSO = () => {
-    setShowSOSelectModal(false);
-    setEditChallan(null);
-    setForm(emptyForm);
-    setItems([{ product_id: '', product_name: '', unit: 'pcs', quantity: '1', unit_price: '0', discount_pct: '0', total_price: 0, godown_id: '' }]);
     setShowModal(true);
   };
 
@@ -803,11 +773,6 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
               )}
             </div>
 
-            <div className="px-5 pb-5">
-              <button onClick={handleNewWithoutSO} className="w-full btn-secondary text-sm">
-                <Plus className="w-4 h-4" /> Create without Sales Order
-              </button>
-            </div>
           </div>
         </div>
       )}

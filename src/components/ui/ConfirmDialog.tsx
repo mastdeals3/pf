@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { useEffect } from 'react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -13,6 +14,15 @@ interface ConfirmDialogProps {
 }
 
 export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, warning, confirmLabel = 'Confirm', isDanger = false, suppressAutoClose = false }: ConfirmDialogProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

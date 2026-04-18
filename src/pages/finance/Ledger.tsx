@@ -405,7 +405,7 @@ export default function Ledger() {
       <div className="bg-white border-b border-neutral-100 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-neutral-900">Party Ledger</h1>
+            <h1 className="text-xl font-semibold text-neutral-900">Party Ledger</h1>
             <p className="text-xs text-neutral-500 mt-0.5">
               {mode === 'customer' ? 'Customer-wise account statements' : 'Supplier-wise purchase statements'}
             </p>

@@ -176,7 +176,7 @@ export default function CalendarPage() {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Schedule & Travel</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">Schedule & Travel</h1>
           <p className="text-xs text-neutral-500 mt-0.5">Orchestrate your spiritual consultancy journey</p>
         </div>
         <div className="flex gap-2">

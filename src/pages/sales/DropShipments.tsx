@@ -248,7 +248,7 @@ export default function DropShipments() {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-5 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-neutral-900">B2B Drop Shipments</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">B2B Drop Shipments</h1>
           <p className="text-xs text-neutral-500">Supplier ships directly to your B2B customer</p>
         </div>
         <div className="flex items-center gap-2">

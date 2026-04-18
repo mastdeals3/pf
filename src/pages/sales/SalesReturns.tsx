@@ -313,7 +313,7 @@ export default function SalesReturns() {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Sales Returns</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">Sales Returns</h1>
           <p className="text-xs text-neutral-500 mt-0.5">Manage customer returns and restock items</p>
         </div>
         <div className="flex items-center gap-2">

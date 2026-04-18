@@ -49,7 +49,7 @@ export default function Journal() {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Journal Entries</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">Journal Entries</h1>
           <p className="text-xs text-neutral-500 mt-0.5">Manual accounting adjustments</p>
         </div>
         <button onClick={() => { setForm({ journal_date: new Date().toISOString().split('T')[0], description: '', debit_account: 'Accounts Receivable', credit_account: 'Sales Revenue', amount: '', notes: '' }); setShowModal(true); }} className="btn-primary">

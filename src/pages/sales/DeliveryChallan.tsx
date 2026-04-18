@@ -389,7 +389,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4 flex items-center justify-between no-print">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Delivery Challans</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">Delivery Challans</h1>
           <p className="text-xs text-neutral-500 mt-0.5">Track dispatches and deliveries — link to Sales Orders</p>
         </div>
         <div className="flex items-center gap-2">

@@ -158,12 +158,12 @@ export default function CompaniesTab() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           <FormSection label="Address">
             <div className="space-y-2">
               <input value={form.address1 || ''} onChange={e => f('address1', e.target.value)} className="input" placeholder="Address Line 1" />
               <input value={form.address2 || ''} onChange={e => f('address2', e.target.value)} className="input" placeholder="Address Line 2" />
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 gap-3">
                 <input value={form.city || ''} onChange={e => f('city', e.target.value)} className="input" placeholder="City" />
                 <input value={form.state || ''} onChange={e => f('state', e.target.value)} className="input" placeholder="State" />
                 <input value={form.pincode || ''} onChange={e => f('pincode', e.target.value)} className="input" placeholder="PIN" maxLength={6} />

@@ -157,7 +157,7 @@ export default function GodownStockPage() {
       <div className="bg-white border-b border-neutral-100 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-neutral-900">Stock</h1>
+            <h1 className="text-xl font-semibold text-neutral-900">Stock</h1>
             <p className="text-xs text-neutral-500 mt-0.5">Godown-wise inventory · Click any product to see movement history</p>
           </div>
           <div className="flex items-center gap-3">

@@ -43,7 +43,7 @@ export default function CompanySettingsPage() {
     <div className="flex-1 overflow-y-auto bg-neutral-50">
       <div className="bg-white border-b border-neutral-100 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">Company Details</h1>
+          <h1 className="text-xl font-semibold text-neutral-900">Company Details</h1>
           <p className="text-xs text-neutral-500 mt-0.5">These details appear on all invoices, challans, and printed documents</p>
         </div>
         <button onClick={handleSave} disabled={saving} className="btn-primary gap-2">
@@ -61,7 +61,7 @@ export default function CompanySettingsPage() {
             <Building2 className="w-4 h-4 text-primary-600" />
             <p className="text-sm font-semibold text-neutral-800">Business Identity</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Business Name *</label>
               <input value={form.name} onChange={e => update('name', e.target.value)} className="input" placeholder="Prachi Fulgagar" />
@@ -86,7 +86,7 @@ export default function CompanySettingsPage() {
             <MapPin className="w-4 h-4 text-primary-600" />
             <p className="text-sm font-semibold text-neutral-800">Address</p>
           </div>
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="label">Address Line 1</label>
               <input value={form.address1} onChange={e => update('address1', e.target.value)} className="input" placeholder="House / Flat No., Street" />
@@ -96,7 +96,7 @@ export default function CompanySettingsPage() {
               <input value={form.address2} onChange={e => update('address2', e.target.value)} className="input" placeholder="Area / Colony / Landmark" />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="label">City</label>
               <input value={form.city} onChange={e => update('city', e.target.value)} className="input" placeholder="Pune" />
@@ -117,7 +117,7 @@ export default function CompanySettingsPage() {
             <Phone className="w-4 h-4 text-primary-600" />
             <p className="text-sm font-semibold text-neutral-800">Contact</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Primary Phone</label>
               <input value={form.phone} onChange={e => update('phone', e.target.value)} className="input" placeholder="+91 98765 43210" />
@@ -127,7 +127,7 @@ export default function CompanySettingsPage() {
               <input value={form.alt_phone} onChange={e => update('alt_phone', e.target.value)} className="input" placeholder="+91 98765 00000" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Email</label>
               <input type="email" value={form.email} onChange={e => update('email', e.target.value)} className="input" placeholder="contact@prachifulgagar.com" />
@@ -145,7 +145,7 @@ export default function CompanySettingsPage() {
             <p className="text-sm font-semibold text-neutral-800">Bank & Payment Details</p>
           </div>
           <p className="text-xs text-neutral-500 -mt-2">These appear on the "Bank Details" section of every invoice</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Bank Name</label>
               <input value={form.bank_name} onChange={e => update('bank_name', e.target.value)} className="input" placeholder="HDFC Bank" />

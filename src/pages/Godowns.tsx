@@ -415,7 +415,7 @@ export default function Godowns() {
               </button>
             </div>
 
-            <div className="px-6 py-5 space-y-5">
+            <div className="px-6 py-4 space-y-3">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-neutral-700">Godown Name <span className="text-error-500">*</span></label>
                 <input
@@ -427,7 +427,7 @@ export default function Godowns() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-neutral-700 flex items-center gap-1.5">
                     <Hash className="w-3.5 h-3.5 text-neutral-400" /> Code

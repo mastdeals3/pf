@@ -189,7 +189,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-neutral-900">Operations Dashboard</h1>
+            <h1 className="text-xl font-semibold text-neutral-900">Operations Dashboard</h1>
             <p className="text-xs text-neutral-400 mt-0.5">{new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
           <div className="flex items-center gap-2">

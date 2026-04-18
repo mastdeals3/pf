@@ -372,7 +372,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
       <div className="p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-neutral-900 flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary-600" /> Dispatch Tracker
             </h1>
             <p className="text-xs text-neutral-500 mt-0.5">Track all outgoing shipments and deliveries</p>
@@ -621,7 +621,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Dispatch' : 'New Dispatch Entry'} maxWidth="max-w-2xl">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Reference Type</label>
               <select className="input-field" value={form.reference_type} onChange={e => setForm({ ...form, reference_type: e.target.value as 'sales_order' | 'invoice', sales_order_id: '', invoice_id: '', customer_name: '' })}>
@@ -667,7 +667,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Dispatch Mode *</label>
               <select className="input-field" value={form.dispatch_mode} onChange={e => setForm({ ...form, dispatch_mode: e.target.value })}>
@@ -680,7 +680,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">LR / Tracking Number</label>
               <input className="input-field" value={form.lr_number} onChange={e => setForm({ ...form, lr_number: e.target.value })} placeholder="LR or tracking ID" />
@@ -691,7 +691,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Driver Name</label>
               <input className="input-field" value={form.driver_name} onChange={e => setForm({ ...form, driver_name: e.target.value })} placeholder="Driver name" />
@@ -702,7 +702,7 @@ export default function Dispatch({ prefillFromDC, onNavigate: _onNavigate }: Dis
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="form-label">Dispatch Date *</label>
               <input type="date" className="input-field" value={form.dispatch_date} onChange={e => setForm({ ...form, dispatch_date: e.target.value })} />

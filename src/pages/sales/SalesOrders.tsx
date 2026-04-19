@@ -1090,7 +1090,7 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
           </div>
         }>
         {viewOrder && (
-          <SalesOrderPrint order={viewOrder} items={viewItems as SalesOrderItem[]} companyOverride={printCompany} printMode="normal" />
+          <SalesOrderPrint order={viewOrder} items={viewItems as SalesOrderItem[]} companyOverride={printCompany} printMode={viewOrder.is_b2b ? 'b2b' : 'normal'} />
         )}
       </Modal>
 

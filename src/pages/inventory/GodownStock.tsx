@@ -44,7 +44,7 @@ export default function GodownStockPage() {
       supabase.from('godowns').select('*').eq('is_active', true).order('name'),
       supabase.from('godown_stock')
         .select('*, products(id, name, sku, unit, low_stock_alert, selling_price, purchase_price)')
-        .gt('quantity', 0)
+        .gte('quantity', 0)
         .order('quantity', { ascending: false })
         .limit(500),
     ]);
@@ -58,7 +58,7 @@ export default function GodownStockPage() {
       .from('godown_stock')
       .select('*, products(id, name, sku, unit, low_stock_alert, selling_price, purchase_price)')
       .eq('godown_id', godownId)
-      .gt('quantity', 0)
+      .gte('quantity', 0)
       .order('quantity', { ascending: false });
     setGodownStock((data || []) as GodownStock[]);
   };

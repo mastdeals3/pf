@@ -161,62 +161,68 @@ export default function Inventory() {
       weight_grams: form.is_gemstone && form.weight_grams ? parseFloat(form.weight_grams) || null : null,
       total_weight: totalW,
       weight_unit: form.is_gemstone ? form.weight_unit : null,
+      company_id: form.company_id || null,
       updated_at: new Date().toISOString(),
     };
-    if (editing) {
-      const { error: productErr } = await supabase.from('products').update(basePayload).eq('id', editing.id);
-      if (productErr) throw productErr;
+    try {
+      if (editing) {
+        const { error: productErr } = await supabase.from('products').update(basePayload).eq('id', editing.id);
+        if (productErr) throw productErr;
 
-      const { data: currentStocks, error: currentErr } = await supabase
-        .from('godown_stock')
-        .select('godown_id, quantity')
-        .eq('product_id', editing.id);
-      if (currentErr) throw currentErr;
-      const currentMap: Record<string, number> = {};
-      (currentStocks || []).forEach(s => { currentMap[s.godown_id] = s.quantity || 0; });
+        const { data: currentStocks, error: currentErr } = await supabase
+          .from('godown_stock')
+          .select('godown_id, quantity')
+          .eq('product_id', editing.id);
+        if (currentErr) throw currentErr;
+        const currentMap: Record<string, number> = {};
+        (currentStocks || []).forEach(s => { currentMap[s.godown_id] = s.quantity || 0; });
 
-      const adjustItems = Object.entries(editGodownStocks)
-        .map(([godown_id, qtyStr]) => {
-          const target = parseFloat(qtyStr) || 0;
-          const current = currentMap[godown_id] || 0;
-          return { product_id: editing.id, godown_id, quantity: target - current };
-        })
-        .filter(i => i.quantity !== 0);
+        const adjustItems = Object.entries(editGodownStocks)
+          .map(([godown_id, qtyStr]) => {
+            const target = parseFloat(qtyStr) || 0;
+            const current = currentMap[godown_id] || 0;
+            return { product_id: editing.id, godown_id, quantity: target - current };
+          })
+          .filter(i => i.quantity !== 0);
 
-      if (adjustItems.length > 0) {
-        await processStockMovement({
-          type: 'adjustment',
-          items: adjustItems,
-          reference_type: 'stock_edit',
-          reference_id: editing.id,
-          notes: 'Manual stock edit',
-        });
-      }
-    } else {
-      const createPayload = { ...basePayload, remaining_weight: totalW };
-      const { data: newProduct, error: insertErr } = await supabase.from('products').insert(createPayload).select().maybeSingle();
-      if (insertErr) throw insertErr;
-      if (newProduct) {
-        const openingItems = Object.entries(openingStocks)
-          .map(([godown_id, qtyStr]) => ({
-            product_id: newProduct.id,
-            godown_id,
-            quantity: parseFloat(qtyStr) || 0,
-          }))
-          .filter(i => i.quantity > 0);
-        if (openingItems.length > 0) {
+        if (adjustItems.length > 0) {
           await processStockMovement({
             type: 'adjustment',
-            items: openingItems,
-            reference_type: 'opening_stock',
-            reference_id: newProduct.id,
-            notes: 'Opening stock',
+            items: adjustItems,
+            reference_type: 'stock_edit',
+            reference_id: editing.id,
+            notes: 'Manual stock edit',
           });
         }
+      } else {
+        const createPayload = { ...basePayload, remaining_weight: totalW };
+        const { data: newProduct, error: insertErr } = await supabase.from('products').insert(createPayload).select().maybeSingle();
+        if (insertErr) throw insertErr;
+        if (newProduct) {
+          const openingItems = Object.entries(openingStocks)
+            .map(([godown_id, qtyStr]) => ({
+              product_id: newProduct.id,
+              godown_id,
+              quantity: parseFloat(qtyStr) || 0,
+            }))
+            .filter(i => i.quantity > 0);
+          if (openingItems.length > 0) {
+            await processStockMovement({
+              type: 'adjustment',
+              items: openingItems,
+              reference_type: 'opening_stock',
+              reference_id: newProduct.id,
+              notes: 'Opening stock',
+            });
+          }
+        }
       }
+      setShowModal(false);
+      loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Save failed: ${msg}`);
     }
-    setShowModal(false);
-    loadData();
   };
 
   const handleDelete = async (p: Product) => {

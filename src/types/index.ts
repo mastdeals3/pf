@@ -312,6 +312,14 @@ export interface DeliveryChallan {
   customer_city?: string;
   customer_state?: string;
   customer_pincode?: string;
+  is_b2b?: boolean;
+  ship_to_name?: string;
+  ship_to_phone?: string;
+  ship_to_address1?: string;
+  ship_to_address2?: string;
+  ship_to_city?: string;
+  ship_to_state?: string;
+  ship_to_pin?: string;
   challan_date: string;
   dispatch_mode?: string;
   courier_company?: string;

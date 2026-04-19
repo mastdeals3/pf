@@ -1063,172 +1063,24 @@ export default function SalesOrders({ onNavigate }: SalesOrdersProps) {
       <Modal isOpen={showViewModal} onClose={() => { setShowViewModal(false); setViewOrder(null); }} title={viewOrder ? `Sales Order — ${viewOrder.so_number}` : ''} size="xl"
         footer={
           <div className="flex items-center gap-3">
-            <button onClick={() => { setShowViewModal(false); setViewOrder(null); }} className="btn-secondary">Close</button>
-            {viewOrder && (
-              <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'normal'); }} className="btn-primary flex items-center gap-1.5">
-                <Printer className="w-3.5 h-3.5" /> Print Proforma
-              </button>
-            )}
-            {viewOrder?.is_b2b && (
-              <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'b2b'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                <Printer className="w-3.5 h-3.5" /> Print Proforma (B2B)
-              </button>
-            )}
+            <StatusBadge status={viewOrder?.status || ''} />
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => { setShowViewModal(false); setViewOrder(null); }} className="btn-secondary">Close</button>
+              {viewOrder && (
+                <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'normal'); }} className="btn-primary flex items-center gap-1.5">
+                  <Printer className="w-3.5 h-3.5" /> Print Proforma
+                </button>
+              )}
+              {viewOrder?.is_b2b && (
+                <button onClick={() => { setShowViewModal(false); openSOPrint(viewOrder, 'b2b'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                  <Printer className="w-3.5 h-3.5" /> Print B2B
+                </button>
+              )}
+            </div>
           </div>
         }>
         {viewOrder && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div>
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Customer</p>
-                <p className="font-medium text-neutral-900">{viewOrder.customer_name}</p>
-                {viewOrder.customer_phone && <p className="text-xs text-neutral-500">{viewOrder.customer_phone}</p>}
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Status</p>
-                <StatusBadge status={viewOrder.status} />
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">SO Date</p>
-                <p className="text-neutral-700">{formatDate(viewOrder.so_date)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Delivery Date</p>
-                <p className="text-neutral-700">{viewOrder.delivery_date ? formatDate(viewOrder.delivery_date) : '-'}</p>
-              </div>
-              {viewOrder.customer_address && (
-                <div className="col-span-2">
-                  <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">Delivery Address</p>
-                  <p className="text-neutral-700">{viewOrder.customer_address}</p>
-                </div>
-              )}
-              {viewOrder.is_b2b && viewOrder.ship_to_name && (
-                <div className="col-span-2 bg-blue-50 rounded-lg p-3">
-                  <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider mb-1">B2B — Ship To</p>
-                  <p className="font-semibold text-neutral-900 text-sm">{viewOrder.ship_to_name}</p>
-                  {viewOrder.ship_to_phone && <p className="text-xs text-neutral-600">{viewOrder.ship_to_phone}</p>}
-                  {viewOrder.ship_to_address1 && <p className="text-xs text-neutral-500">{[viewOrder.ship_to_address1, viewOrder.ship_to_address2, viewOrder.ship_to_city, viewOrder.ship_to_state, viewOrder.ship_to_pin].filter(Boolean).join(', ')}</p>}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-neutral-700 mb-2">Items</p>
-              <div className="border border-neutral-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-neutral-50">
-                    <tr>
-                      <th className="table-header text-left">Product</th>
-                      <th className="table-header text-right w-20">Qty</th>
-                      <th className="table-header text-right w-24">Unit Price</th>
-                      {viewOrder.is_b2b && <th className="table-header text-right w-24">B2B Price</th>}
-                      <th className="table-header text-right w-24">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {viewItems.map((item, idx) => (
-                      <tr key={idx} className="border-t border-neutral-100">
-                        <td className="table-cell font-medium">{item.product_name}</td>
-                        <td className="table-cell text-right">{item.quantity} {item.unit}</td>
-                        <td className="table-cell text-right">{formatCurrency(item.unit_price)}</td>
-                        {viewOrder.is_b2b && <td className="table-cell text-right text-blue-600">{(item as Record<string,unknown>).b2b_price != null ? formatCurrency((item as Record<string,unknown>).b2b_price as number) : '—'}</td>}
-                        <td className="table-cell text-right font-semibold">{formatCurrency(item.total_price)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <div className="space-y-1 text-sm min-w-[200px]">
-                <div className="flex justify-between gap-8 text-neutral-600">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(viewOrder.subtotal)}</span>
-                </div>
-                {(viewOrder.courier_charges || 0) > 0 && (
-                  <div className="flex justify-between gap-8 text-neutral-600">
-                    <span>Courier</span>
-                    <span>{formatCurrency(viewOrder.courier_charges || 0)}</span>
-                  </div>
-                )}
-                {(viewOrder.discount_amount || 0) > 0 && (
-                  <div className="flex justify-between gap-8 text-neutral-600">
-                    <span>Discount</span>
-                    <span>- {formatCurrency(viewOrder.discount_amount || 0)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between gap-8 font-bold text-neutral-900 border-t border-neutral-200 pt-1 mt-1">
-                  <span>Total</span>
-                  <span>{formatCurrency(viewOrder.total_amount)}</span>
-                </div>
-              </div>
-            </div>
-
-            {viewOrder.notes && (
-              <div>
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">Notes</p>
-                <p className="text-sm text-neutral-600 italic">{viewOrder.notes}</p>
-              </div>
-            )}
-
-            <div id={`proforma-${viewOrder.id}`} style={{ display: 'none' }}>
-              <div className="header">
-                <div>
-                  <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a' }}>PROFORMA INVOICE</h2>
-                  <p style={{ color: '#666', fontSize: 13 }}>{viewOrder.so_number}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p className="label">Date</p>
-                  <p className="value">{formatDate(viewOrder.so_date)}</p>
-                  {viewOrder.delivery_date && <>
-                    <p className="label" style={{ marginTop: 6 }}>Expected Delivery</p>
-                    <p className="value">{formatDate(viewOrder.delivery_date)}</p>
-                  </>}
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <p className="label">Bill To</p>
-                <p className="value">{viewOrder.customer_name}</p>
-                {viewOrder.customer_phone && <p style={{ fontSize: 12, color: '#555' }}>{viewOrder.customer_phone}</p>}
-                {viewOrder.customer_address && <p style={{ fontSize: 12, color: '#555' }}>{viewOrder.customer_address}{viewOrder.customer_city ? `, ${viewOrder.customer_city}` : ''}</p>}
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Product</th>
-                    <th style={{ textAlign: 'right' }}>Qty</th>
-                    <th style={{ textAlign: 'right' }}>Unit Price</th>
-                    <th style={{ textAlign: 'right' }}>Disc%</th>
-                    <th style={{ textAlign: 'right' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewItems.map((item, idx) => (
-                    <tr key={idx}>
-                      <td>{idx + 1}</td>
-                      <td>{item.product_name}</td>
-                      <td style={{ textAlign: 'right' }}>{item.quantity} {item.unit}</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
-                      <td style={{ textAlign: 'right' }}>{item.discount_pct}%</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(item.total_price)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="total-section">
-                <p>Subtotal: {formatCurrency(viewOrder.subtotal)}</p>
-                {(viewOrder.courier_charges || 0) > 0 && <p>Courier: {formatCurrency(viewOrder.courier_charges || 0)}</p>}
-                {(viewOrder.discount_amount || 0) > 0 && <p>Discount: -{formatCurrency(viewOrder.discount_amount || 0)}</p>}
-                <p className="total">TOTAL: {formatCurrency(viewOrder.total_amount)}</p>
-              </div>
-              {viewOrder.notes && <p style={{ marginTop: 16, color: '#555', fontSize: 12 }}>Notes: {viewOrder.notes}</p>}
-              <div className="footer">
-                <p>This is a Proforma Invoice and not a tax invoice. Subject to change until final invoice is issued.</p>
-              </div>
-            </div>
-          </div>
+          <SalesOrderPrint order={viewOrder} items={viewItems as SalesOrderItem[]} companyOverride={printCompany} printMode="normal" />
         )}
       </Modal>
 

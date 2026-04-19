@@ -63,7 +63,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
   const [viewChallan, setViewChallan] = useState<DCType | null>(null);
   const [viewItems, setViewItems] = useState<ChallanItem[]>([]);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [viewB2BSO, setViewB2BSO] = useState<{ is_b2b: boolean; ship_to_name?: string; ship_to_phone?: string; ship_to_address1?: string; ship_to_address2?: string; ship_to_city?: string; ship_to_state?: string; ship_to_pin?: string } | null>(null);
+
   const [deleteTarget, setDeleteTarget] = useState<DCType | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loadingSO, setLoadingSO] = useState(false);
@@ -76,8 +76,9 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const [challansRes, productsRes, customersRes, soRes, godownsRes] = await Promise.all([
-      supabase.from('delivery_challans').select('*').order('created_at', { ascending: false }),
+      supabase.from('delivery_challans').select('id, challan_number, sales_order_id, customer_id, customer_name, customer_phone, customer_address, customer_address2, customer_city, customer_state, customer_pincode, is_b2b, ship_to_name, ship_to_phone, ship_to_address1, ship_to_address2, ship_to_city, ship_to_state, ship_to_pin, challan_date, dispatch_mode, courier_company, tracking_number, status, notes, company_id, created_at').gte('challan_date', thirtyDaysAgo).order('created_at', { ascending: false }).limit(200),
       supabase.from('products').select('id, name, unit, selling_price, company_id').eq('is_active', true),
       supabase.from('customers').select('id, name, phone, address, address2, city, state, pincode').eq('is_active', true).order('name'),
       supabase.from('sales_orders').select('id, so_number, customer_id, customer_name, status').order('created_at', { ascending: false }).limit(500),
@@ -327,15 +328,6 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
     const { data: itemsData } = await supabase.from('delivery_challan_items').select('*').eq('delivery_challan_id', dc.id);
     setViewChallan({ ...dc, items: (itemsData || []) as ChallanItem[] });
     setViewItems((itemsData || []) as ChallanItem[]);
-    setViewB2BSO(null);
-    if (dc.sales_order_id) {
-      const { data: soData } = await supabase
-        .from('sales_orders')
-        .select('is_b2b, ship_to_name, ship_to_phone, ship_to_address1, ship_to_address2, ship_to_city, ship_to_state, ship_to_pin')
-        .eq('id', dc.sales_order_id)
-        .maybeSingle();
-      if (soData?.is_b2b) setViewB2BSO(soData);
-    }
     const dcWithCompany = dc as DCType & { company_id?: string };
     let coId = dcWithCompany.company_id || null;
     if (!coId && itemsData && itemsData.length > 0) {
@@ -456,78 +448,90 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
         </div>
       </div>
 
-      <div className="px-6 pb-6 no-print">
-        <div className="card p-0 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-neutral-50 border-b border-neutral-100">
-              <tr>
-                <th className="table-header text-left">Challan #</th>
-                <th className="table-header text-left">Customer</th>
-                <th className="table-header text-left">SO Linked</th>
-                <th className="table-header text-left">Date</th>
-                <th className="table-header text-left">Courier</th>
-                <th className="table-header text-left">Tracking</th>
-                <th className="table-header text-left">Status</th>
-                <th className="table-header text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(dc => (
-                <tr key={dc.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
-                  <td className="table-cell font-medium text-xs">
-                    {dc.challan_number.startsWith('LEGACY-DC-') ? (
-                      <span className="text-neutral-400 italic text-[11px]">Legacy (pre-system)</span>
-                    ) : (
-                      <span className="text-primary-700">{dc.challan_number}</span>
-                    )}
-                  </td>
-                  <td className="table-cell">
-                    <p className="font-medium text-sm">{dc.customer_name}</p>
-                    {dc.customer_phone && <p className="text-xs text-neutral-400">{dc.customer_phone}</p>}
-                  </td>
-                  <td className="table-cell">
-                    {dc.sales_order_id ? (
-                      <span className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                        {soNumberMap[dc.sales_order_id] || 'SO Linked'}
-                      </span>
-                    ) : <span className="text-neutral-300 text-xs">—</span>}
-                  </td>
-                  <td className="table-cell text-neutral-500 text-sm">{formatDate(dc.challan_date)}</td>
-                  <td className="table-cell text-neutral-600 text-sm">{dc.courier_company || dc.dispatch_mode || '—'}</td>
-                  <td className="table-cell">
-                    {dc.tracking_number ? (
-                      <span className="text-xs font-mono bg-neutral-100 px-2 py-0.5 rounded">{dc.tracking_number}</span>
-                    ) : <span className="text-neutral-400 text-xs">-</span>}
-                  </td>
-                  <td className="table-cell"><StatusBadge status={dc.status} /></td>
-                  <td className="table-cell text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {dc.status === 'created' && (
-                        <button onClick={() => onNavigate('invoices', { prefillDCForInvoice: dc })} title="Next step: Create Invoice"
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm">
-                          <Receipt className="w-3 h-3" /> Invoice
-                        </button>
-                      )}
-                      {dc.status !== 'cancelled' && (
-                        <button onClick={() => onNavigate('courier', { prefillDCForShipment: dc })} title="Create Dispatch"
-                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors">
-                          <Send className="w-3 h-3" /> Dispatch
-                        </button>
-                      )}
-                      <button onClick={() => openView(dc)} title="View" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Eye className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => openPrint(dc)} title="Print" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Printer className="w-3.5 h-3.5" /></button>
-                      {dc.status !== 'delivered' && dc.status !== 'cancelled' && (
-                        <button onClick={() => openEdit(dc)} title="Edit" className="p-1.5 rounded-lg text-neutral-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                      )}
-                      <button onClick={() => { setDeleteTarget(dc); setShowConfirm(true); }} title="Cancel" className="p-1.5 rounded-lg text-neutral-400 hover:text-error-600 hover:bg-error-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && <EmptyState icon={Truck} title="No challans yet" description="Create a delivery challan." />}
-        </div>
+      <div className="px-6 pb-6 no-print space-y-4">
+        {(['created', 'invoiced', 'cancelled'] as const).map(groupStatus => {
+          const groupLabel = groupStatus === 'created' ? 'Pending — Awaiting Invoice' : groupStatus === 'invoiced' ? 'Completed — Invoiced' : 'Cancelled';
+          const groupItems = filtered.filter(dc => dc.status === groupStatus);
+          if (groupItems.length === 0) return null;
+          return (
+            <div key={groupStatus}>
+              <div className={`flex items-center gap-2 mb-2 px-1 ${groupStatus === 'created' ? 'text-warning-700' : groupStatus === 'invoiced' ? 'text-success-700' : 'text-neutral-400'}`}>
+                <span className="text-[10px] font-bold uppercase tracking-widest">{groupLabel}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${groupStatus === 'created' ? 'bg-warning-100' : groupStatus === 'invoiced' ? 'bg-success-100' : 'bg-neutral-100'}`}>{groupItems.length}</span>
+              </div>
+              <div className="card p-0 overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-neutral-50 border-b border-neutral-100">
+                    <tr>
+                      <th className="table-header text-left">Challan #</th>
+                      <th className="table-header text-left">Customer</th>
+                      <th className="table-header text-left">SO Linked</th>
+                      <th className="table-header text-left">Date</th>
+                      <th className="table-header text-left">Courier</th>
+                      <th className="table-header text-left">Tracking</th>
+                      <th className="table-header text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupItems.map(dc => (
+                      <tr key={dc.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                        <td className="table-cell font-medium text-xs">
+                          {dc.challan_number.startsWith('LEGACY-DC-') ? (
+                            <span className="text-neutral-400 italic text-[11px]">Legacy (pre-system)</span>
+                          ) : (
+                            <span className="text-primary-700">{dc.challan_number}</span>
+                          )}
+                          {dc.is_b2b && <span className="ml-1.5 text-[9px] font-bold bg-blue-100 text-blue-700 px-1 py-0.5 rounded uppercase">B2B</span>}
+                        </td>
+                        <td className="table-cell">
+                          <p className="font-medium text-sm">{dc.customer_name}</p>
+                          {dc.customer_phone && <p className="text-xs text-neutral-400">{dc.customer_phone}</p>}
+                        </td>
+                        <td className="table-cell">
+                          {dc.sales_order_id ? (
+                            <span className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                              {soNumberMap[dc.sales_order_id] || 'SO Linked'}
+                            </span>
+                          ) : <span className="text-neutral-300 text-xs">—</span>}
+                        </td>
+                        <td className="table-cell text-neutral-500 text-sm">{formatDate(dc.challan_date)}</td>
+                        <td className="table-cell text-neutral-600 text-sm">{dc.courier_company || dc.dispatch_mode || '—'}</td>
+                        <td className="table-cell">
+                          {dc.tracking_number ? (
+                            <span className="text-xs font-mono bg-neutral-100 px-2 py-0.5 rounded">{dc.tracking_number}</span>
+                          ) : <span className="text-neutral-400 text-xs">-</span>}
+                        </td>
+                        <td className="table-cell text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {dc.status === 'created' && (
+                              <button onClick={() => onNavigate('invoices', { prefillDCForInvoice: dc })} title="Next step: Create Invoice"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm">
+                                <Receipt className="w-3 h-3" /> Invoice
+                              </button>
+                            )}
+                            {dc.status !== 'cancelled' && (
+                              <button onClick={() => onNavigate('courier', { prefillDCForShipment: dc })} title="Create Dispatch"
+                                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors">
+                                <Send className="w-3 h-3" /> Dispatch
+                              </button>
+                            )}
+                            <button onClick={() => openView(dc)} title="View" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Eye className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => openPrint(dc)} title="Print" className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"><Printer className="w-3.5 h-3.5" /></button>
+                            {dc.status !== 'delivered' && dc.status !== 'cancelled' && (
+                              <button onClick={() => openEdit(dc)} title="Edit" className="p-1.5 rounded-lg text-neutral-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                            )}
+                            <button onClick={() => { setDeleteTarget(dc); setShowConfirm(true); }} title="Cancel" className="p-1.5 rounded-lg text-neutral-400 hover:text-error-600 hover:bg-error-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <EmptyState icon={Truck} title="No challans yet" description="Create a delivery challan." />}
       </div>
 
       <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditChallan(null); }}
@@ -678,7 +682,7 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
         </div>
       </Modal>
 
-      <Modal isOpen={showViewModal} onClose={() => { setShowViewModal(false); setViewChallan(null); setViewB2BSO(null); }}
+      <Modal isOpen={showViewModal} onClose={() => { setShowViewModal(false); setViewChallan(null); }}
         title={viewChallan ? `Delivery Challan — ${viewChallan.challan_number}` : ''} size="xl"
         footer={
           <div className="flex items-center gap-2 w-full">
@@ -689,34 +693,25 @@ export default function DeliveryChallan({ onNavigate }: DeliveryChallanProps) {
                   SO: {soNumberMap[viewChallan.sales_order_id] || '—'}
                 </span>
               )}
-              {viewB2BSO && (
+              {viewChallan?.is_b2b && (
                 <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">B2B</span>
               )}
             </div>
             <div className="ml-auto flex gap-2">
+              {viewChallan?.is_b2b && (
+                <button onClick={() => { if (viewChallan) { setShowViewModal(false); openPrint(viewChallan); } }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                  <Printer className="w-3.5 h-3.5" /> Print B2B
+                </button>
+              )}
               <button onClick={() => { if (viewChallan) { setShowViewModal(false); openPrint(viewChallan); } }} className="flex items-center gap-1.5 btn-secondary text-xs">
                 <Printer className="w-3.5 h-3.5" /> Print Challan
               </button>
-              <button onClick={() => { setShowViewModal(false); setViewChallan(null); setViewB2BSO(null); }} className="btn-primary">Close</button>
+              <button onClick={() => { setShowViewModal(false); setViewChallan(null); }} className="btn-primary">Close</button>
             </div>
           </div>
         }>
         {viewChallan && (
-          <div>
-            {viewB2BSO && (
-              <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">B2B Ship-To</p>
-                <p className="text-sm font-semibold text-neutral-900">{viewB2BSO.ship_to_name}</p>
-                {viewB2BSO.ship_to_phone && <p className="text-xs text-neutral-600">{viewB2BSO.ship_to_phone}</p>}
-                {(viewB2BSO.ship_to_address1 || viewB2BSO.ship_to_city) && (
-                  <p className="text-xs text-neutral-500">
-                    {[viewB2BSO.ship_to_address1, viewB2BSO.ship_to_address2, viewB2BSO.ship_to_city, viewB2BSO.ship_to_state, viewB2BSO.ship_to_pin].filter(Boolean).join(', ')}
-                  </p>
-                )}
-              </div>
-            )}
-            <ChallanPrint challan={viewChallan} companyOverride={printCompany} />
-          </div>
+          <ChallanPrint challan={viewChallan} companyOverride={printCompany} />
         )}
       </Modal>
 
